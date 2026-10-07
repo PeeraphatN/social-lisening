@@ -3,6 +3,7 @@
 import argparse
 import csv
 import json
+import re
 import time
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -49,6 +50,45 @@ class PageData(HTMLParser):
         if tag == "script" and self.script is not None:
             self.scripts.append("".join(self.script))
             self.script = None
+
+
+def parse_count(text):
+    match = re.search(r"\d+(?:[,.]\d+)?\s*[KkMm]?", text)
+    if not match:
+        return None
+    raw = match.group().replace(",", "").strip()
+    multiplier = 1
+    if raw[-1:] in "Kk":
+        multiplier, raw = 1_000, raw[:-1]
+    elif raw[-1:] in "Mm":
+        multiplier, raw = 1_000_000, raw[:-1]
+    return int(float(raw) * multiplier)
+
+
+def extract_social_metrics(body_text):
+    metrics = {"reaction_count": None, "comment_count": None, "share_count": None,
+               "reaction_text_raw": None, "comment_text_raw": None, "share_text_raw": None}
+    keys = (("reaction", ("reaction", "like", "ถูกใจ")),
+            ("comment", ("comment", "ความคิดเห็น")),
+            ("share", ("share", "แชร์")))
+    lines = [line.strip() for line in body_text.splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        lowered = line.lower()
+        if metrics["reaction_count"] is None and ("ความรู้สึกทั้งหมด" in line or "all reactions" in lowered):
+            next_line = lines[index + 1] if index + 1 < len(lines) else ""
+            metrics["reaction_count"] = parse_count(next_line)
+            metrics["reaction_text_raw"] = f"{line} {next_line}".strip()
+            continue
+        count = parse_count(line)
+        if count is None or len(line) > 80:
+            continue
+        if not (line[0].isdigit() or any(lowered.startswith(word) for _, words in keys for word in words)):
+            continue
+        for name, words in keys:
+            if metrics[f"{name}_text_raw"] is None and any(word in lowered for word in words):
+                metrics[f"{name}_text_raw"] = line
+                metrics[f"{name}_count"] = count
+    return metrics
 
 
 def extract_post(html):

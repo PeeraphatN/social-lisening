@@ -1,6 +1,6 @@
 import unittest
 
-from probe_post import extract_post, validate_url
+from probe_post import extract_post, extract_social_metrics, parse_count, validate_url
 
 
 class PostProbeTests(unittest.TestCase):
@@ -33,6 +33,26 @@ class PostProbeTests(unittest.TestCase):
                     "https://user:password@www.facebook.com/"):
             with self.assertRaises(ValueError):
                 validate_url(url)
+
+    def test_parse_count_supports_compact_numbers(self):
+        self.assertEqual(parse_count("1.2K comments"), 1200)
+        self.assertEqual(parse_count("แชร์ 3 ครั้ง"), 3)
+
+    def test_extract_social_metrics_keeps_raw_counter_text(self):
+        result = extract_social_metrics("Like\n1.2K comments\nแชร์ 3 ครั้ง")
+        self.assertEqual(result["comment_count"], 1200)
+        self.assertEqual(result["comment_text_raw"], "1.2K comments")
+        self.assertEqual(result["share_count"], 3)
+        self.assertEqual(result["share_text_raw"], "แชร์ 3 ครั้ง")
+
+    def test_extract_social_metrics_reads_all_reactions_pair(self):
+        result = extract_social_metrics("ความรู้สึกทั้งหมด\n161\n65 ความคิดเห็น")
+        self.assertEqual(result["reaction_count"], 161)
+        self.assertEqual(result["reaction_text_raw"], "ความรู้สึกทั้งหมด 161")
+
+    def test_extract_social_metrics_ignores_long_post_text(self):
+        result = extract_social_metrics("ผมเสียเวลา 555 คนพวกนี้มา comment ว่าคนใช้ Codex ไม่ฉลาด")
+        self.assertIsNone(result["comment_count"])
 
 
 if __name__ == "__main__":

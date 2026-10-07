@@ -64,7 +64,10 @@ def main():
             run_id = f"{session_id}-r{number}-{ref['sample_id'].lower()}"
             row = {"round": number, "sample_id": ref["sample_id"], "status": "not_attempted",
                    "characters": 0, "http_status": None, "collected_at": None,
-                   "raw_hash_matches": False, "error_reason": None, "run_id": run_id}
+                   "raw_hash_matches": False, "text_sha256": None, "reaction_count": None,
+                   "comment_count": None, "share_count": None, "reaction_text_raw": None,
+                   "comment_text_raw": None, "share_text_raw": None, "error_reason": None,
+                   "run_id": run_id}
             if not stop:
                 try:
                     execution = subprocess.run([sys.executable, str(root / "inspect_browser.py"),
@@ -75,11 +78,19 @@ def main():
                     result = json.loads((root / "runs" / f"{run_id}-inspection.json").read_text(encoding="utf-8"))
                     row.update(status=compare_post(result, ref), characters=len(result.get("text") or ""),
                                http_status=result.get("http_status"), collected_at=result.get("collected_at"),
-                               raw_hash_matches=hashlib.sha256((result.get("text") or "").encode("utf-8")).hexdigest() == ref["review"]["text_sha256"])
+                               raw_hash_matches=hashlib.sha256((result.get("text") or "").encode("utf-8")).hexdigest() == ref["review"]["text_sha256"],
+                               text_sha256=result.get("text_sha256"), reaction_count=result.get("reaction_count"),
+                               comment_count=result.get("comment_count"), share_count=result.get("share_count"),
+                               reaction_text_raw=result.get("reaction_text_raw"),
+                               comment_text_raw=result.get("comment_text_raw"),
+                               share_text_raw=result.get("share_text_raw"))
                     if row["status"] == "match":
                         latest[ref["sample_id"]] = {"sample_id": ref["sample_id"], "publisher": ref["publisher"],
                                                    "text": result["text"], "input_url": ref["input_url"],
                                                    "fetch_url": result["resolved_url"], "collected_at": result["collected_at"],
+                                                   "reaction_count": result.get("reaction_count"),
+                                                   "comment_count": result.get("comment_count"),
+                                                   "share_count": result.get("share_count"),
                                                    "matched_round": number, "status": "reference_match"}
                     stop = row["status"] == "blocked"
                 except (subprocess.TimeoutExpired, RuntimeError, OSError, json.JSONDecodeError) as error:
