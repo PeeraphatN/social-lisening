@@ -1,13 +1,31 @@
-# ส่งต่องานให้ agent — 7 ตุลาคม 2026
+# ส่งต่องานให้ agent — 8 ตุลาคม 2026
 
 ## เริ่มอ่านตรงนี้
 
-งานทดลองดึง **ข้อความโพสต์ Facebook สาธารณะจากลิงก์ที่ทราบแล้ว** เสร็จแล้ว ผู้ใช้ตรวจข้อความครบ 5 ตัวอย่าง และทดลองซ้ำผ่าน 15/15 ครั้งใน 3 รอบ เว้น 10 นาทีหลังจบแต่ละรอบ งานนี้ยังไม่ใช่ระบบ social listening ที่ใช้งานจริง
+ชื่อชุดโปรแกรมคือ **Facebook Collector** ตอนนี้ยังเป็นงานทดลอง รับลิงก์โพสต์สาธารณะที่ทราบแล้ว เก็บข้อความและจำนวน reaction/comment/share ที่อ่านได้ ยังไม่พร้อมใช้งานจริง
 
-1. อ่าน [ผลทดลองและข้อจำกัด](experiments/facebook-post-repeat-results.md) ก่อนสรุปความสามารถของตัวดึง
-2. อ่าน [วิธีติดตั้งและรัน](../experiments/facebook_posts/README.md) เมื่อต้องใช้โค้ด
-3. รัน `python -m unittest discover -s experiments/facebook_posts -p 'test_*.py'` จาก root ของ repo: baseline คือ 9 tests ผ่าน
-4. รับโจทย์ขั้นถัดไปจากผู้ใช้ก่อนเพิ่มฟีเจอร์ งานค้นหาโพสต์บริษัท ดึงคอมเมนต์ และ sentiment ยังไม่ได้รับการทดลอง
+1. ทำงานต่อบน `experiment/facebook-post-scraping-data` ซึ่ง push งานล่าสุดแล้ว
+2. อ่าน [issue #2: งานที่ต้องทำก่อนปล่อยรุ่นแรก](https://github.com/PeeraphatN/social-lisening/issues/2) และ [ผลตรวจ counter กับ DOM จริง](https://github.com/PeeraphatN/social-lisening/issues/2#issuecomment-6044843301)
+3. อ่าน [วิธีติดตั้งและรัน](../experiments/facebook_posts/README.md) แล้วรัน `python -m unittest discover -s experiments/facebook_posts -p 'test_*.py'` จาก root ของ repo: ล่าสุดผ่าน 13 tests
+4. งานถัดไปคือจำกัดการอ่าน counter ให้เฉพาะโพสต์เป้าหมาย และรองรับ counter แบบตัวเลขข้างไอคอน โดยเพิ่ม regression test จากหน้าที่ตรวจจริง
+
+## Branch และข้อควรระวัง
+
+- `experiment/facebook-post-scraping-data` เก็บโค้ดทดลองล่าสุด รวม commit `ed16cb8` ที่เพิ่ม engagement metrics
+- `master` เป็น default branch บน GitHub และ push commit `3850559` แล้ว ซึ่ง revert งานทดลอง `aad7cad` ออก เนื้อหาไฟล์ ณ commit นี้ตรงกับ `6e33afe`
+- ลบ local branch `feat/add-facebook-post-scraping-data` ที่ซ้ำแล้ว
+- เมื่อเริ่มรุ่นแรกตาม issue #2 ให้แยก `feat/facebook-collector-post` จาก master และคืนการเปลี่ยนแปลงที่เคย revert พร้อมนำงานใหม่เข้ามา การ merge branch ทดลองอย่างเดียวจะไม่คืนไฟล์ที่ master เคย revert
+- ตรวจ `git status` ก่อนเริ่ม มีไฟล์ untracked จากเครื่องมือที่ยังไม่ได้จัดการ ห้ามรวมเข้า commit โดยอัตโนมัติ
+
+## ปัญหาที่ตรวจพบล่าสุด
+
+- P02 และ P05 ลิงก์เดิมแสดงจำนวน comment/share เป็นตัวเลขข้างไอคอน ไม่มีคำกำกับ parser ปัจจุบันจึงคืน null แม้หน้าเว็บมีตัวเลข ดู [issue #1](https://github.com/PeeraphatN/social-lisening/issues/1) และผลตรวจใน issue #2; ปัญหานี้ไม่ได้เกิดเฉพาะ photo page
+- comment ของ P03/P04 ที่อ่านได้ 1 ตรงกับตัวเลขของโพสต์บนหน้าเว็บ แต่ยังไม่ยืนยันยอดรวมที่นับ replies ด้วย
+- parser อ่าน body ทั้งหน้า ยังเสี่ยงหยิบตัวเลขจากความคิดเห็นหรือโพสต์อื่น
+- P05 ลิงก์กลุ่มเดิมยังได้ `preview_only`; permalink เจาะจงโพสต์เคยดึงข้อความได้ ต้องรายงานว่าใช้ URL ใด ไม่เปลี่ยนเงียบ ๆ
+- เก็บค่าที่อ่านไม่ได้เป็น null ไม่ถือว่าเป็น 0 และไม่ถือว่าตัวเลขที่อ่านซ้ำได้คือถูกต้องแล้ว
+
+รุ่นแรกจะรับ public URL แล้วเก็บข้อความและผลแต่ละรอบพร้อมเวลาเก็บ การค้นหาด้วย keyword และการดึงข้อความ comment แยกทำภายหลัง ไม่ต้องรอสองงานนี้ก่อนปล่อยรุ่นแรก
 
 ## เป้าหมายและข้อกำหนดของผู้ใช้
 
@@ -23,10 +41,10 @@
 | ไฟล์ใน `experiments/facebook_posts/` | หน้าที่ |
 | --- | --- |
 | `probe_post.py` | HTTP ด้วย standard library และอ่าน metadata/embedded JSON; ข้อความที่พบยังต้องตรวจยืนยัน |
-| `inspect_browser.py` | Playwright Chromium แบบ headless ไม่ล็อกอิน เก็บข้อความ JSON/CSV และ screenshot |
+| `inspect_browser.py` | Playwright Chromium แบบ headless ไม่ล็อกอิน เก็บข้อความ จำนวน engagement ข้อมูลดิบ hash ข้อความ ระยะเวลา JSON/CSV และ screenshot |
 | `run_repeats.py` | เทียบข้อมูลอ้างอิง 5 โพสต์ 3 รอบ เว้น 600 วินาทีหลังจบรอบ และรวมผลไม่ซ้ำ |
 | `export_p01.py` | ส่งออก P01 จากไฟล์ผลเดิมบนเครื่อง ไม่ร้องขอ Facebook ใหม่ |
-| `test_probe_post.py`, `test_repeats.py` | 9 offline tests สำหรับ parser และการเทียบผล |
+| `test_probe_post.py`, `test_repeats.py` | 13 offline tests สำหรับ parser และการเทียบผล |
 
 ## หลักฐานและการรันจาก clone ใหม่
 
@@ -54,4 +72,4 @@ Session ที่เสร็จแล้ว: `repeat-20261006T181111Z` มี�
 
 แนวคิดเริ่มต้น: [free-thai-social-listening.md](research/free-thai-social-listening.md) — ข้อเสนอใช้เพจบริษัทในช่วงแรกถูกแทนที่ด้วยความต้องการติดตามพื้นที่สาธารณะแล้ว
 
-งานถัดไปที่เป็นไปได้คือทดลองค้นพบลิงก์โพสต์ที่เกี่ยวข้องกับ TKC โดยใช้คำค้นฟรี แต่ให้รับโจทย์จากผู้ใช้ก่อนและทดสอบการเข้าถึงจริง แยกผลค้นพบลิงก์ออกจากผลดึงข้อความเสมอ
+งานค้นหา keyword ให้แยก issue เมื่อเริ่มทำ และแยกผลค้นพบลิงก์ออกจากผลดึงข้อความเสมอ ส่วน checklist รุ่นแรกติดตามใน issue #2 ไม่ต้องคัดลอกผลทดสอบทั้งหมดมาไว้ในเอกสารนี้
