@@ -367,7 +367,8 @@ def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
                     const parent = e.parentElement;
                     if (parent !== a && counterNode(parent) && !controls.some(c => c.contains(e))) counters.push(parent.innerText.trim());
                 }
-                return {permalinks:headers.map(e => e.href), counters, message_count:messages.length};
+                return {permalinks:headers.map(e => e.href), counters, message_count:messages.length,
+                        message_has_target_link: !!message?.querySelector('a[href]')};
             });
         return {containers, html:document.documentElement.outerHTML, resolved_url:location.href,
                 body_text:document.body ? document.body.innerText : '', title:document.title, observed_at,
@@ -409,7 +410,13 @@ def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None
                         or re.search(r"/(?:posts|permalink)/", route.path)
                         or {"story_fbid", "multi_permalinks", "fbid"} & parse_qs(route.query, keep_blank_values=True).keys()):
                     malformed_header = True
-        if any(identities_match(identity, target) for identity in identities):
+        # Resolved/requested identity and the unique post-level message already
+        # establish the target; rendered header links may use unrelated aliases.
+        if (consistent and not identities and not malformed_header
+                and not container.get("message_has_target_link")
+                and container["message_count"] == 1 and container.get("counters")):
+            candidates.append(container)
+        elif any(identities_match(identity, target) for identity in identities):
             candidates.append(container)
             if malformed_header:
                 status = "malformed"

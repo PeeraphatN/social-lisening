@@ -102,6 +102,16 @@ class TargetScopeTests(unittest.TestCase):
         for metric in ("reaction", "comment", "share"):
             self.assertIsNone(result[f"{metric}_count"])
 
+    def test_alias_header_and_unique_engagement_row_are_enough(self):
+        content = article().replace(f'href="{URL}"', 'href="https://www.facebook.com/alias?rdid=abc"')
+        content = content.replace('24 reactions|1 comment|2 shares',
+                                  '24 reactions|1 comment|2 shares|Share|ถูกใจ')
+        result = self.inspect(content)
+        self.assertEqual(result["reaction_count"], 24)
+        self.assertEqual(result["comment_count"], 1)
+        self.assertEqual(result["share_count"], 2)
+        self.assertEqual(result["reaction_scope_status"], "target_scoped")
+
     def test_link_inside_message_cannot_prove_target(self):
         content = article().replace(f'<a href="{URL}">Timestamp</a>', '').replace(
             'Synthetic post', f'<a href="{URL}">Quoted target</a>')
