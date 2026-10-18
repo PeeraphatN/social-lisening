@@ -1,82 +1,75 @@
-# ส่งต่องานให้ agent — 12 ตุลาคม 2026
+# ส่งต่องาน — Social Listening Scraping — 18 ตุลาคม 2026
 
-## เริ่มอ่านตรงนี้
+## ภาพงานที่ตกลงกัน
 
-เป้าหมายแรกคือ **Facebook Collector**: keyword → ค้นพบ URL โพสต์สาธารณะ → เก็บข้อมูลโพสต์ → เก็บข้อความความคิดเห็น ใช้กับแบรนด์ องค์กร บุคคล หรือหัวข้อที่ผู้ใช้กำหนดเอง รายละเอียดเป้าหมาย เกณฑ์จบ และสถานะงานติดตามใน [goal #3](https://github.com/PeeraphatN/social-lisening/issues/3)
+Social Listening แยกอยู่สองที่เก็บ:
 
-1. อ่าน goal #3 และ [issue #2: facebook-post-scraping](https://github.com/PeeraphatN/social-lisening/issues/2) รวมคอมเมนต์ล่าสุดผ่าน `gh` ก่อนเริ่มงาน ใช้ issue เป็นที่อ้างอิงหลักเมื่อเอกสารใน branch เก่ามีข้อมูลไม่ตรงกัน
-2. ตรวจ `git status --short --branch` และ `git worktree list` งานโค้ดต่ออยู่บน `experiment/facebook-post-scraping-data`; ตอนตรวจ handoff worktree `C:/dev/social-lisening` อยู่ `master` และ branch ทดลองเปิดอยู่ในอีก worktree ให้ทำงานใน worktree ของ branch ทดลอง
-3. อ่าน [วิธีติดตั้งและรันบน branch ทดลอง](https://github.com/PeeraphatN/social-lisening/blob/experiment/facebook-post-scraping-data/experiments/facebook_posts/README.md) แล้วรัน `python -m unittest discover -s experiments/facebook_posts -p 'test_*.py'` จาก root ของ worktree นั้น รายงานวันที่ 8 ตุลาคมบน branch ทดลองผ่าน 13/13 ส่วน baseline 9 tests ในเอกสารเดิมเป็นผลก่อนเพิ่ม metrics; master ปัจจุบัน revert โค้ดทดลองออกแล้ว ให้ตรวจผลใหม่บน branch ทดลองก่อนอ้างว่า tests ปัจจุบันผ่าน
-4. ทำ #2 ต่อ: จำกัดการอ่านข้อความ/counter ให้เฉพาะโพสต์เป้าหมาย และตรวจ counter แบบตัวเลขข้างไอคอน ปัญหา P02 หน้า photo อยู่ใน [issue #1](https://github.com/PeeraphatN/social-lisening/issues/1)
-5. ทำ #2 ให้ผ่านเกณฑ์ก่อน แล้วต่อ #4 → #5 → ตรวจเส้นทางรวมของ goal #3 เก็บผลตรวจและข้อจำกัดใน issue ที่เกี่ยวข้อง
+- **ฝั่ง scraping (repo นี้):** พัฒนา Facebook Collector เป็นเครื่องมือทั่วไป ใช้ฟรีและรันบนเครื่องได้ ไม่ผูกกับบริษัทหรือชุด keywords เฉพาะ
+- **ฝั่ง demo (อีกที่เก็บ):** งาน Apify, ข้อมูล 300 posts, การคัดกรองด้วย agent, sentiment และ Dashboard ไม่รวมเป็นผลงานของ repo นี้
 
-## Goal และ issue ที่จัดแล้ว
+เป้าหมาย collector และเกณฑ์จบอยู่ใน [goal #3](https://github.com/PeeraphatN/social-lisening/issues/3) ตอนนี้ทำ **facebook-post-scraping** ใน [#2](https://github.com/PeeraphatN/social-lisening/issues/2) ลำดับต่อคือ [post search #4](https://github.com/PeeraphatN/social-lisening/issues/4) → [comment scraping #5](https://github.com/PeeraphatN/social-lisening/issues/5) → ตรวจเส้นทางรวม ส่วน [load test #7](https://github.com/PeeraphatN/social-lisening/issues/7) ยังพักไว้
 
-| Issue | หน้าที่ | สถานะเมื่อตรวจ 12 ตุลาคม |
-| --- | --- | --- |
-| [#3 Facebook Collector](https://github.com/PeeraphatN/social-lisening/issues/3) | Goal แรกและเกณฑ์จบเส้นทาง keyword → post → comments | เปิด; มี sub-issues #2, #4, #5 |
-| [#2 facebook-post-scraping](https://github.com/PeeraphatN/social-lisening/issues/2) | รับ URL แล้วเก็บข้อความ ยอด reaction/comment/share และเวลาเก็บ | งานทดลองที่ต้องทำต่อ; มี sub-issue #1 |
-| [#1 photo-page metrics](https://github.com/PeeraphatN/social-lisening/issues/1) | แก้ comment/share ของ P02 หน้า photo | เปิด |
-| [#4 facebook-post-search](https://github.com/PeeraphatN/social-lisening/issues/4) | รับ keyword แล้วค้นพบ URL โพสต์ | วางแผนแล้ว; ยังไม่มี implementation ที่ยืนยันในงานนี้ |
-| [#5 facebook-comment-scraping](https://github.com/PeeraphatN/social-lisening/issues/5) | รับ URL แล้วเก็บข้อความความคิดเห็น | วางแผนแล้ว; ยังไม่ได้ทดลองเก็บข้อความความคิดเห็น |
+## อ่านหลักฐานก่อนทำต่อ
 
-ทั้งสาม feature เป็น sub-issues จริงบน GitHub พร้อมเกณฑ์จบ วิธีตรวจ และ dependency งานรับ URL ทดสอบแยกจาก search ได้ และ comment scraping ทดลองจาก URL ที่รู้แล้วได้โดยไม่จำเป็นต้องรอ search เสร็จ ลำดับ #2 → #4 → #5 เป็นลำดับทำงานที่ตกลงไว้ ส่วน sentiment, dashboard และแพลตฟอร์มอื่นอยู่นอก goal แรก
+- [Counter accuracy #6](https://github.com/PeeraphatN/social-lisening/issues/6): สถานะล่าสุด checklist และผลทดลองที่เปิดอ่านบน GitHub ได้
+- [Same-version repeat](https://github.com/PeeraphatN/social-lisening/issues/6#issuecomment-6121295648) และ [ผลตรวจต้นทาง P03](https://github.com/PeeraphatN/social-lisening/issues/6#issuecomment-6121462499)
+- [รายงาน P03 และ counter repeat](experiments/facebook-post-counter-followup-20261012.md): diagnosis, identity chain, tests, hashes และตำแหน่งหลักฐาน local
+- [README ทดลอง](../experiments/facebook_posts/README.md): การติดตั้ง วิธีรัน และ semantics ของ counters
+- [ผล text repeat เดิม](experiments/facebook-post-repeat-results.md): เป็นผลข้อความ ไม่ใช้แทนผล counter หรือ comment scraping
 
-## Branch และงานล่าสุดใน session นี้
+Raw evidence อยู่ใน ignored `experiments/facebook_posts/runs/` ไม่มากับ clone ใหม่ อย่าบอกว่า GitHub readers เปิดไฟล์ local เหล่านี้ได้ ให้ลิงก์ public summary comments แทน
 
-- งานทดลอง `experiment/facebook-post-scraping-data` รวม commit `ed16cb8` ที่เพิ่ม metrics แล้ว ก่อน sync handoff ตรวจ worktree อยู่ที่ `0aa06bc`; ใช้ `git worktree list` หาที่ทำงานแทนการเปลี่ยน branch ในโฟลเดอร์ master
-- `master` มี commit `3850559` ซึ่ง revert งานทดลองออกแล้ว เมื่อจะนำงานกลับเข้า master ต้องคืนการเปลี่ยนแปลงที่เคย revert ด้วย การ merge branch ทดลองอย่างเดียวไม่คืนไฟล์เหล่านั้น ดู [บันทึกจัด branch](https://github.com/PeeraphatN/social-lisening/issues/2#issuecomment-6044944137)
-- งานจัด goal/issue ใช้ `gh` และ `gh api` ผ่าน auth ของ CLI ไม่มีการติดตั้ง GitHub integration แยก
-- งานจัด issue และอัปเดต handoff นี้ไม่ได้แก้ implementation หรือรัน Facebook/tests ใหม่ ผลเทคนิคด้านล่างเป็นหลักฐานจากรอบที่ระบุวันที่ไว้
-- ตรวจรายการ staged/untracked ก่อน commit และรวมเฉพาะงานที่ตั้งใจเปลี่ยน การ sync handoff ใช้ commit เอกสารแยกจาก implementation และไฟล์ตั้งค่าเครื่องมือ
+## จุดที่หยุดไว้
 
-## ผลทดลองที่ผ่านและงานที่ยังไม่ผ่าน
+รองรับ opaque-pfbid counters แล้ว โดยตรวจ route → story → post → feedback identity และบังคับให้ Share `is_empty` สอดคล้องกับ count Live validation วันที่ 18 ต.ค. ได้ P03=24/4/0 และ P04=275/1/414; embedded positive counters ตรงกับ body ทุกช่องที่เทียบได้
 
-งานทดลอง **ข้อความจาก URL ที่ทราบแล้ว** ผ่าน 15/15 ครั้งเมื่อ 7 ตุลาคม: ผู้ใช้ตรวจข้อความทั้ง 5 ตัวอย่าง และทดลองซ้ำ 3 รอบ เว้น 10 นาทีหลังจบแต่ละรอบ ดู [ผลทดลองและข้อจำกัด](experiments/facebook-post-repeat-results.md) ผลนี้ไม่ครอบคลุม keyword search, counter หรือข้อความความคิดเห็น
+Issue #6 ยังไม่ปิด งานที่เหลือคือ target scope ของค่าที่อ่านจาก body ทั้งหน้า และสรุป accuracy/tolerance จาก reference ที่มีเวลาและ surface ตรงกับ snapshot
 
-ตาม [ผลตรวจ counter วันที่ 8 ตุลาคม](https://github.com/PeeraphatN/social-lisening/issues/2#issuecomment-6044843301) ยังต้องแก้ scope ของ parser, comment/share แบบไอคอนของ P02/P05, ข้อความ P05 ลิงก์กลุ่มเดิมที่เป็น `preview_only` และการทดสอบซ้ำของ counter P03 share ยังยืนยันไม่ได้ และ comment ของ P03/P04 ยังไม่ยืนยันว่ารวม replies จึงยังไม่ใช่รุ่นพร้อมใช้
+ชุด offline tests ผ่าน 50/50 เมื่อตรวจล่าสุด หากเริ่มแก้โค้ด ให้รันใหม่จาก root:
 
-## เป้าหมายและข้อกำหนดของผู้ใช้
+```bash
+python -m unittest discover -s experiments/facebook_posts -p 'test_*.py'
+```
 
-โปรเจกต์เปิด public และวางเป็นเครื่องมือทั่วไป ผู้ใช้กำหนดคำค้น/เป้าหมายเอง เอกสารเป้าหมายและ issue ใช้คำอธิบายทั่วไปโดยไม่ผูกกับบริษัทเฉพาะ งาน social listening และ sentiment เป็นทิศทางต่อจาก collector ตาม goal ที่แยกภายหลัง
+## Timesheet และเสียงผู้เขียน
 
-- ใช้เครื่องมือฟรี 100% และรันบนเครื่องได้ ผู้ใช้ปฏิเสธ Apify
-- อธิบายเป็นภาษาไทย สั้น ชัด และแบ่งงานเป็นขั้นเล็ก ผู้ใช้เปิด ADHD mode
-- การทดลองนี้ใช้ browser แบบไม่ล็อกอิน หยุดเมื่อ HTTP 403/429 และไม่มี proxy หรือการหลบ CAPTCHA
-- ตัวอย่างทั้ง 5 เป็นชุดทดสอบทางเทคนิค ไม่ใช่ชุดข้อมูล sentiment ของเป้าหมายที่ผู้ใช้เลือก
+รูปแบบที่ตกลงไว้เก็บใน **`daily-timesheet` skill** ไม่ต้องคัด template ซ้ำที่นี่:
 
-## โค้ดบน branch ทดลอง
+- จัด activities ใต้หัวข้องานใหญ่ เช่น `Facebook Collector → facebook-post-scraping` แล้วเรียงงานย่อยภายในกลุ่ม
+- แยกฝั่ง scraping จาก demo แม้ใช้ชื่อโปรเจกต์เดียวกัน
+- เขียนจากมุมของเจ้าของงาน เช่น “ตรวจต้นทางแล้ว…” แทน “ผู้ใช้ยืนยัน…” รวมถึงหัวตาราง ลิงก์ และ checklist
+- เวลาเริ่ม–จบงานวันนี้ยังไม่ได้ระบุ เวลารันทดลองไม่ใช่เวลาทำงานทั้งหมด และยังไม่มีหลักฐานการกรอกเข้าระบบ timesheet บริษัท
 
-| ไฟล์ใน `experiments/facebook_posts/` | หน้าที่ |
-| --- | --- |
-| `probe_post.py` | HTTP ด้วย standard library และอ่าน metadata/embedded JSON; ข้อความที่พบยังต้องตรวจยืนยัน |
-| `inspect_browser.py` | Playwright Chromium แบบ headless ไม่ล็อกอิน เก็บข้อความ JSON/CSV และ screenshot; branch ทดลองเพิ่ม engagement metrics แล้ว |
-| `run_repeats.py` | เทียบข้อมูลอ้างอิง 5 โพสต์ 3 รอบ เว้น 600 วินาทีหลังจบรอบ และรวมผลไม่ซ้ำ |
-| `export_p01.py` | ส่งออก P01 จากไฟล์ผลเดิมบนเครื่อง ไม่ร้องขอ Facebook ใหม่ |
-| `test_probe_post.py`, `test_repeats.py` | offline tests สำหรับ parser และการเทียบผล; จำนวน tests ต่างตาม branch ดู baseline ด้านบน |
+สร้าง `~/.agents/skills/daily-timesheet/SKILL.md` และอัปเดต `~/.agents/skills/project-owner-notes/SKILL.md` แล้ว เป็น shared skills ไม่ได้ติดตั้งไว้เฉพาะ default ของ pi รองรับ agents ที่ค้นพบ `.agents/skills` ถ้ายังไม่เห็น skill ให้โหลดไฟล์นี้โดยตรง
 
-## หลักฐานและการรันจาก clone ใหม่
+Timesheet ที่คุยกันเป็น draft ในบทสนทนา ยังไม่ได้บันทึกเข้า Hermes หรือระบบบริษัท ประวัติประชุม/เวลางานที่มาจาก Hermes ตรวจยืนยันจาก repo นี้ไม่ได้
 
-Session ที่เสร็จแล้ว: `repeat-20261006T181111Z` มีผลตรงกัน 15/15 ครั้ง รวมข้อความล่าสุด 5 โพสต์ 8,605 อักขระ รายงานอยู่ใน `docs/experiments/` และสำเนา `summary.json`/`checks.csv` ที่ไม่มีเนื้อหาโพสต์เต็มอยู่ใน `experiments/facebook_posts/results/repeat-20261006T181111Z/`
+## ข้อจำกัดระหว่างทำต่อ
 
-ข้อมูลดิบ ข้อความเต็ม ภาพหน้าจอ และข้อมูลอ้างอิงที่ผู้ใช้ยืนยันอยู่บนเครื่องเดิมใน `experiments/facebook_posts/runs/` ซึ่งถูก gitignore เช่นเดียวกับ `.venv/`, `.playwright/`, `.auth/` และ `__pycache__/` ไฟล์เหล่านี้ไม่ได้มากับ clone ใหม่
+- เก็บ Facebook แบบ anonymous เท่านั้น ไม่ login เปลี่ยน personal session กด interactions ใช้ proxy หรือหลบ challenge; serialize requests และหยุดเมื่อพบ block/challenge
+- เก็บ live originals, replay และค่าที่ตรวจต้นทางแยกกัน ไม่เขียนทับผลเก่าเพื่อให้ coverage ดีขึ้น
+- Missing ไม่ใช่ zero; counter ผิดโพสต์เป็น bug; coverage ไม่ใช่ accuracy; references ข้ามเวลาไม่ใช้แทนค่าต้นทางของ snapshot ใหม่
+- Comments ตาม browser กับ app รวม replies เป็นคนละ scope ไม่บวก replies ที่โหลดมาไม่ครบเพื่อเดายอดรวม
+- ไม่ commit/push หรือปิด issues อัตโนมัติ ไม่เผยแพร่ full post/comment content หรือข้อมูลลับ
 
-จาก clone ใหม่ติดตั้งตาม README แล้วรันลิงก์เดียวและ offline tests ได้ ส่วน `run_repeats.py` ต้องมี `runs/references.json` ของทั้ง 5 ตัวอย่างพร้อม hash และการยืนยันข้อความก่อน ไฟล์สรุปผลไม่สามารถใช้แทนข้อความอ้างอิงได้ ห้ามถือว่าข้อความที่เก็บใหม่ผ่านการตรวจของผู้ใช้จากการยืนยันรอบเก่า
+## Working tree และประวัติ branch
 
-## ข้อจำกัดที่ต้องรักษาให้ชัดเจน
+ทำงานบน `experiment/facebook-post-scraping-data` ให้ตรวจ `git status --short --branch` และ `git worktree list` ก่อนแก้ไฟล์
 
-- ผลผ่านครอบคลุม 5 ลิงก์ในช่วงประมาณ 21 นาทีเท่านั้น ยังไม่ยืนยันความเสถียรระยะยาวหรือ Facebook ทุกประเภทโพสต์
-- ตรวจชื่อผู้เขียนที่รู้แล้วในส่วนหัวของหน้า ยังไม่มีตัวดึงผู้เขียนทั่วไป และไม่มีเวลาตีพิมพ์แบบ absolute ที่ยืนยันแล้ว
-- P05 ใช้ canonical URL `/groups/1108191221217612/posts/1455325143170883/` จาก ID ในลิงก์เดิม ตัวรันอ้าง `fetch_url` ใน reference; ยังไม่ได้ canonicalize group URL อัตโนมัติ
-- P04 มีรูปและ URL ในข้อความ ยังไม่ได้ทดสอบกล่อง link preview ข่าว; ข้อความ DOM อาจย่อ URL หรือแทน emoji จึงเก็บข้อความ embedded JSON
-- การค้นหาโพสต์ด้วย keyword คอมเมนต์ OCR วิดีโอ sentiment และเว็บ dashboard ยังไม่มี implementation
+รักษางานที่มีอยู่ รวมถึง `AGENTS.md` และ `docs/github-writing-style.md` ตรวจ diff ก่อน stage; อย่ารวมไฟล์ตั้งค่า/เอกสารที่ไม่เกี่ยวข้องโดยอัตโนมัติ
 
-## อ่านเพิ่มเฉพาะเมื่อเกี่ยวข้องกับโจทย์ใหม่
+Master เคย revert งานทดลองออกแล้ว การ merge branch อย่างเดียวไม่คืนการเปลี่ยนแปลงที่ revert ดู [บันทึก branch ใน #2](https://github.com/PeeraphatN/social-lisening/issues/2#issuecomment-6044944137) สำหรับ handoff รุ่นก่อน ดู `git show 013dbdf:docs/HANDOFF.md` โดยอ่านเป็นประวัติ ไม่ใช้สถานะวันที่ 8 ต.ค. แทนผลล่าสุดใน #6
 
-แผนเดิม: [facebook-post-experiment.md](experiments/facebook-post-experiment.md)
+## Suggested skills
 
-ทางเลือก Facebook scraping: [facebook-scraping-options.md](research/facebook-scraping-options.md)
+ให้ session ใหม่เรียก Skill tool สำหรับ skills ที่ตรงกับงาน; ถ้าไม่มี Skill tool ให้ใช้ read เปิด `SKILL.md` จากรายการ skills ของ agent:
 
-แนวคิดเริ่มต้น: [free-thai-social-listening.md](research/free-thai-social-listening.md) — ข้อเสนอใช้เพจบริษัทในช่วงแรกถูกแทนที่ด้วยความต้องการติดตามพื้นที่สาธารณะแล้ว
+- **graft:** ก่อนค้นหรือเปิด source ใน repo ตาม `AGENTS.md`
+- **daily-timesheet:** สรุปงานรายวันตาม format ที่ตกลงและแบ่งกิจกรรมตาม feature/module
+- **project-owner-notes:** เขียน issues/comments/work logs จากมุมผู้เขียน
+- **no-ai-slop:** เมื่อต้องตรวจหรือแก้สำนวนให้ตรงเสียงผู้เขียน
+- **test-driven-development:** เมื่อเริ่มเปลี่ยนพฤติกรรม extraction
+- **debug-mantra:** เมื่อเริ่ม diagnosis/debugging ให้ทำตามลำดับของ skill
+- **writing-for-agents:** เมื่อต้องแก้ handoff, skills หรือเอกสารคำสั่งของ agents
 
-เมื่อต่อ keyword search ให้อ่าน #4 ก่อน เริ่มพิสูจน์ช่องทางค้นหาที่เข้าถึงได้จริง และแยกผลค้นพบลิงก์ออกจากผลดึงข้อความเสมอ เกณฑ์จบแต่ละ feature อยู่ใน issue ไม่ต้องคัดลอก checklist ทั้งหมดมาไว้ใน handoff
+เริ่ม session ถัดไปด้วยการอ่าน #6 และตรวจ working tree แล้วเลือกงานต่อจากคำขอใหม่ ไม่ถือว่ารายการงานค้างทุกข้อได้รับอนุญาตให้เริ่มแล้ว

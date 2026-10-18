@@ -38,6 +38,27 @@ class PostProbeTests(unittest.TestCase):
         self.assertEqual(parse_count("1.2K comments"), 1200)
         self.assertEqual(parse_count("แชร์ 3 ครั้ง"), 3)
 
+    def test_parse_count_supports_thai_compact_numbers(self):
+        for text, expected in (("1.3 หมื่น", 13000), ("1.3หมื่น", 13000),
+                               ("1.2 พัน", 1200), ("2.5 แสน", 250000),
+                               ("1.2 ล้าน", 1200000), ("1,234", 1234)):
+            with self.subTest(text=text):
+                self.assertEqual(parse_count(text), expected)
+
+    def test_p07_reactions_preserve_thai_abbreviation(self):
+        result = extract_social_metrics("ความรู้สึกทั้งหมด\n1.3 หมื่น\n232 ความคิดเห็น\nแชร์ 523 ครั้ง")
+        self.assertEqual(result["reaction_count"], 13000)
+        self.assertEqual(result["reaction_text_raw"], "ความรู้สึกทั้งหมด 1.3 หมื่น")
+        self.assertEqual(result["comment_count"], 232)
+        self.assertEqual(result["share_count"], 523)
+
+    def test_comment_zero_requires_explicit_counter(self):
+        explicit = extract_social_metrics("0 ความคิดเห็น")
+        self.assertEqual(explicit["comment_count"], 0)
+        missing = extract_social_metrics("ความรู้สึกทั้งหมด\n5\nแชร์ 2 ครั้ง")
+        self.assertIsNone(missing["comment_count"])
+        self.assertIsNone(missing["comment_text_raw"])
+
     def test_extract_social_metrics_keeps_raw_counter_text(self):
         result = extract_social_metrics("Like\n1.2K comments\nแชร์ 3 ครั้ง")
         self.assertEqual(result["comment_count"], 1200)

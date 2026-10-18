@@ -11,7 +11,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
-from probe_post import extract_post, extract_social_metrics, validate_url
+from probe_post import extract_browser_metrics, extract_post, validate_url
 
 
 root = Path(__file__).resolve().parent
@@ -39,12 +39,15 @@ with sync_playwright() as p:
         except PlaywrightTimeout:
             pass
         body_text = page.locator("body").inner_text()
-        result = extract_post(page.content())
+        html = page.content()
+        result = extract_post(html)
         result.update(
             collected_at=datetime.now(timezone.utc).isoformat(),
             method="anonymous_browser_inspection",
             authenticated=False,
+            input_url=url,
             resolved_url=page.url,
+            page_title=page.title(),
             http_status=response.status if response else None,
             dom_message_count=page.locator('[data-ad-rendering-role="story_message"]').count(),
             dom_messages=page.locator('[data-ad-rendering-role="story_message"]').all_inner_texts(),
@@ -52,7 +55,10 @@ with sync_playwright() as p:
             duration_seconds=round(time.monotonic() - started, 3),
             text_sha256=hashlib.sha256((result.get("text") or "").encode("utf-8")).hexdigest() if result.get("text") else None,
         )
-        result.update(extract_social_metrics(body_text))
+        result.update(extract_browser_metrics(body_text, html, page.url))
+        # Local evidence only: runs/ is ignored; never upload full page content.
+        (output / f"{args.run_id}-page.html").write_text(html, encoding="utf-8")
+        (output / f"{args.run_id}-body.txt").write_text(body_text, encoding="utf-8")
         page.screenshot(path=str(output / f"{args.run_id}.png"))
         (output / f"{args.run_id}-inspection.json").write_text(
             json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -60,7 +66,8 @@ with sync_playwright() as p:
                   ("status", "publisher_metadata", "text", "preview_text",
                    "published_at", "collected_at", "resolved_url", "manual_match",
                    "duration_seconds", "text_sha256", "reaction_count", "comment_count",
-                   "share_count", "reaction_text_raw", "comment_text_raw", "share_text_raw")}
+                   "share_count", "reaction_text_raw", "comment_text_raw", "share_text_raw",
+                   "reaction_count_source", "comment_count_source", "share_count_source")}
         record.update(input_url=url, authenticated=False, method="anonymous_playwright")
         with (output / f"{args.run_id}.csv").open("w", encoding="utf-8-sig", newline="") as file:
             writer = csv.DictWriter(file, fieldnames=list(record))
