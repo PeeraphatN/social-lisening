@@ -51,7 +51,7 @@ when clearer.
 
 Preferred shape for updates:
 
-1. รอบนี้ทำอะไร
+1. อัปเดตล่าสุด
 2. ผลที่ได้
 3. ที่เจอ
 4. แก้แล้ว

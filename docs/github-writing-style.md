@@ -35,7 +35,7 @@ Avoid:
 Use only the sections that fit the update.
 
 ```md
-## รอบนี้ทำอะไร
+## อัปเดตล่าสุด
 
 ...
 
