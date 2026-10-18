@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
@@ -38,24 +37,26 @@ with sync_playwright() as p:
             page.locator('[data-ad-rendering-role="story_message"]').first.wait_for(timeout=15000)
         except PlaywrightTimeout:
             pass
-        body_text = page.locator("body").inner_text()
-        html = page.content()
+        metrics = inspect_browser_metrics(page, url, include_snapshot=True)
+        snapshot = metrics.pop("snapshot")
+        body_text = snapshot["body_text"]
+        html = snapshot["html"]
         result = extract_post(html)
         result.update(
-            collected_at=datetime.now(timezone.utc).isoformat(),
+            collected_at=snapshot["observed_at"],
             method="anonymous_browser_inspection",
             authenticated=False,
             input_url=url,
-            resolved_url=page.url,
-            page_title=page.title(),
+            resolved_url=snapshot["resolved_url"],
+            page_title=snapshot["title"],
             http_status=response.status if response else None,
-            dom_message_count=page.locator('[data-ad-rendering-role="story_message"]').count(),
-            dom_messages=page.locator('[data-ad-rendering-role="story_message"]').all_inner_texts(),
+            dom_message_count=len(snapshot["messages"]),
+            dom_messages=snapshot["messages"],
             body_preview=body_text[:1800],
             duration_seconds=round(time.monotonic() - started, 3),
             text_sha256=hashlib.sha256((result.get("text") or "").encode("utf-8")).hexdigest() if result.get("text") else None,
         )
-        result.update(inspect_browser_metrics(page, url))
+        result.update(metrics)
         # Local evidence only: runs/ is ignored; never upload full page content.
         (output / f"{args.run_id}-page.html").write_text(html, encoding="utf-8")
         (output / f"{args.run_id}-body.txt").write_text(body_text, encoding="utf-8")

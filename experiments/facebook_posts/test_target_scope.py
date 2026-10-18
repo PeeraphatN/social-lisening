@@ -1,8 +1,16 @@
 """Synthetic rendered pages; every request is fulfilled locally or aborted."""
 
+import io
+import json
 import os
+import runpy
+import shutil
+import tempfile
 import unittest
+from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 browser_path = Path(__file__).resolve().parent / ".playwright"
 os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(browser_path))
@@ -98,6 +106,99 @@ class TargetScopeTests(unittest.TestCase):
         content = article().replace(f'<a href="{URL}">Timestamp</a>', '').replace(
             'Synthetic post', f'<a href="{URL}">Quoted target</a>')
         self.assertIsNone(self.inspect(content)["reaction_count"])
+
+    def test_comment_and_reply_controls_without_nested_articles_are_not_post_counters(self):
+        noise = ('<div role="comment"><div role="button">999 reactions</div>'
+                 '<button>888 comments</button><div role="comment">'
+                 '<div role="button">777 shares</div></div></div>')
+        for counters, expected in (("", [None, None, None]),
+                                   ("24 reactions|1 comment|2 shares", [24, 1, 2])):
+            with self.subTest(counters=counters):
+                result = self.inspect(article(counters=counters, extra=noise))
+                for metric, count in zip(("reaction", "comment", "share"), expected):
+                    self.assertEqual(result[f"{metric}_count"], count)
+                    if count is None:
+                        self.assertIsNone(result[f"{metric}_body_evidence"])
+                        self.assertIsNone(result[f"{metric}_count_source"])
+                        self.assertEqual(result[f"{metric}_scope_status"], "missing")
+                    else:
+                        self.assertEqual(result[f"{metric}_scope_status"], "target_scoped")
+
+    def test_comment_aggregate_and_controls_containing_comments_are_ineligible(self):
+        for noise in ('<div role="comment"><div><div>All reactions</div><span>999</span></div></div>',
+                      '<div role="button"><div role="comment">999 reactions</div></div>',
+                      '<div><div>All reactions</div><div role="comment">999</div></div>'):
+            with self.subTest(noise=noise):
+                result = self.inspect(article(counters="", extra=noise))
+                self.assertIsNone(result["reaction_count"])
+                self.assertIsNone(result["reaction_body_evidence"])
+
+    def test_inspection_persists_metrics_and_evidence_from_one_snapshot(self):
+        page = self.browser.new_page()
+        content = '<title>Before mutation</title>' + article()
+        page.route("**/*", lambda route: route.fulfill(
+            status=200, content_type="text/html", body=content)
+            if route.request.is_navigation_request() else route.abort())
+
+        class MutatingPage:
+            def __getattr__(self, name):
+                return getattr(page, name)
+
+            def goto(self, *args, **kwargs):
+                response = page.goto(*args, **kwargs)
+                page.evaluate("""() => {
+                    window.observationTime = '2026-10-19T00:00:00.000Z';
+                    const NativeDate = Date;
+                    window.Date = class extends NativeDate {
+                        constructor(...args) { super(...(args.length ? args : [window.observationTime])); }
+                    };
+                }""")
+                return response
+
+            def mutate(self):
+                page.evaluate("""() => {
+                    document.title = 'After mutation';
+                    document.querySelector('[data-ad-rendering-role="story_message"]').innerText = 'Changed post';
+                    document.querySelector('[role="button"]').innerText = '999 reactions';
+                    window.observationTime = '2026-10-19T01:00:00.000Z';
+                }""")
+
+            def content(self):
+                captured = page.content()
+                self.mutate()
+                return captured
+
+            def evaluate(self, *args, **kwargs):
+                captured = page.evaluate(*args, **kwargs)
+                self.mutate()
+                return captured
+
+        browser = SimpleNamespace(new_page=lambda **kwargs: MutatingPage(), close=lambda: None)
+        playwright = SimpleNamespace(chromium=SimpleNamespace(launch=lambda **kwargs: browser))
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                script = Path(directory) / "inspect_browser.py"
+                shutil.copyfile(Path(__file__).with_name("inspect_browser.py"), script)
+                with patch("playwright.sync_api.sync_playwright", return_value=nullcontext(playwright)), \
+                        patch("sys.argv", [str(script), URL, "--run-id", "atomic"]), \
+                        patch.dict(os.environ), redirect_stdout(io.StringIO()):
+                    runpy.run_path(str(script), run_name="__main__")
+                output = Path(directory) / "runs"
+                result = json.loads((output / "atomic-inspection.json").read_text(encoding="utf-8"))
+                saved_html = (output / "atomic-page.html").read_text(encoding="utf-8")
+                saved_body = (output / "atomic-body.txt").read_text(encoding="utf-8")
+                self.assertEqual(result["reaction_count"], 24)
+                self.assertIn("24 reactions", saved_html)
+                self.assertIn("24 reactions", saved_body)
+                self.assertNotIn("999 reactions", saved_html + saved_body)
+                self.assertEqual(result["page_title"], "Before mutation")
+                self.assertEqual(result["dom_messages"], ["Synthetic post"])
+                self.assertEqual(result["body_preview"], saved_body[:1800])
+                self.assertEqual(result["collected_at"], "2026-10-19T00:00:00.000Z")
+                self.assertEqual(page.title(), "After mutation")
+                self.assertIn("999 reactions", page.locator("body").inner_text())
+        finally:
+            page.close()
 
     def test_hidden_target_and_hidden_conflicting_counters_are_ignored(self):
         self.assertIsNone(self.inspect('<div hidden>' + article() + '</div>')["reaction_count"])

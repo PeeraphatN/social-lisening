@@ -341,11 +341,12 @@ def identities_match(left, right):
     return left == right
 
 
-def inspect_browser_metrics(page, requested_url):
-    """Capture one rendered snapshot. This boundary also supports offline replay."""
+def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
+    """Capture one rendered snapshot; optionally return it for local evidence."""
     snapshot = page.evaluate(r"""() => {
+        const observed_at = new Date().toISOString();
         const blocked = '[data-ad-rendering-role="story_message"], [data-ad-rendering-role="story_attachments"], '
-            + '[role="menu"], [role="dialog"], [role="complementary"], aside';
+            + '[role="comment"], [role="menu"], [role="dialog"], [role="complementary"], aside';
         const visible = e => e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true});
         const containers = [...document.querySelectorAll('[role="article"]')]
             .filter(a => !a.parentElement.closest('[role="article"]') && visible(a))
@@ -356,6 +357,7 @@ def inspect_browser_metrics(page, requested_url):
                 const headers = message ? [...a.querySelectorAll('a[href]')].filter(e => owned(e)
                     && !e.closest(blocked) && (e.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING)) : [];
                 const counterNode = e => owned(e) && !e.closest(blocked) && message
+                    && !e.querySelector(blocked + ', [role="article"]')
                     && (message.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING);
                 const controls = [...a.querySelectorAll('[role="button"], button')].filter(counterNode);
                 const counters = controls.filter(e => !controls.some(c => c !== e && e.contains(c)))
@@ -367,10 +369,15 @@ def inspect_browser_metrics(page, requested_url):
                 }
                 return {permalinks:headers.map(e => e.href), counters, message_count:messages.length};
             });
-        return {containers, html:document.documentElement.outerHTML, resolved_url:location.href};
+        return {containers, html:document.documentElement.outerHTML, resolved_url:location.href,
+                body_text:document.body ? document.body.innerText : '', title:document.title, observed_at,
+                messages:[...document.querySelectorAll('[data-ad-rendering-role="story_message"]')].map(e => e.innerText)};
     }""")
-    return extract_browser_metrics("", snapshot["html"], snapshot["resolved_url"], requested_url=requested_url,
-                                   rendered_containers=snapshot["containers"])
+    metrics = extract_browser_metrics("", snapshot["html"], snapshot["resolved_url"], requested_url=requested_url,
+                                      rendered_containers=snapshot["containers"])
+    if include_snapshot:
+        metrics["snapshot"] = snapshot
+    return metrics
 
 
 def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None, rendered_containers=None):
