@@ -2,8 +2,7 @@
 
 import unittest
 
-from probe_post import extract_browser_metrics
-from test_icon_counters import GROUP_URL, PHOTO_URL, html, summary
+from test_icon_counters import GROUP_URL, PHOTO_URL, html, summary, scoped_metrics
 
 
 URL = "https://www.facebook.com/example/posts/pfbidRequested"
@@ -59,7 +58,7 @@ def document(shares=0, *, route_url="/example/posts/pfbidRequested", extra=None,
 
 class PfbidShareTests(unittest.TestCase):
     def check_missing(self, content):
-        metrics = extract_browser_metrics(BODY, content, URL)
+        metrics = scoped_metrics(BODY, content, URL)
         self.assertEqual(metrics["reaction_count"], 24)
         self.assertEqual(metrics["comment_count"], 1)
         self.assertIsNone(metrics["share_count"])
@@ -68,12 +67,12 @@ class PfbidShareTests(unittest.TestCase):
         return metrics
 
     def test_matching_identity_chain_preserves_zero(self):
-        metrics = extract_browser_metrics(BODY, document(), URL)
+        metrics = scoped_metrics(BODY, document(), URL)
         self.assertEqual(metrics["share_count"], 0)
         self.assertEqual(metrics["share_count_source"], "embedded_ufi_summary")
 
     def test_matching_identity_chain_returns_positive_share_count(self):
-        metrics = extract_browser_metrics(BODY, document(shares=79), URL)
+        metrics = scoped_metrics(BODY, document(shares=79), URL)
         self.assertEqual(metrics["share_count"], 79)
         self.assertEqual(metrics["share_text_raw"], "79")
 
@@ -112,7 +111,7 @@ class PfbidShareTests(unittest.TestCase):
         self.check_missing(document(include_share=False))
 
     def test_displayed_share_counter_takes_precedence(self):
-        metrics = extract_browser_metrics(BODY + "\nแชร์ 406 ครั้ง", document(), URL)
+        metrics = scoped_metrics(BODY + "\nแชร์ 406 ครั้ง", document(), URL)
         self.assertEqual(metrics["share_count"], 406)
         self.assertEqual(metrics["share_count_source"], "body_text")
 
@@ -122,10 +121,10 @@ class PfbidShareTests(unittest.TestCase):
         self.check_missing(content)
 
     def test_existing_photo_and_group_extraction_is_unchanged(self):
-        group = extract_browser_metrics("All reactions\n391", html(summary()), GROUP_URL)
+        group = scoped_metrics("All reactions\n391", html(summary()), GROUP_URL)
         media = {"currMedia": {"id": "456", "creation_story": {"post_id": "123"},
                                 "container_story": {"post_id": "123"}}}
-        photo = extract_browser_metrics("All reactions\n391", html(media, summary()), PHOTO_URL)
+        photo = scoped_metrics("All reactions\n391", html(media, summary()), PHOTO_URL)
         self.assertEqual((group["comment_count"], group["share_count"]), (77, 79))
         self.assertEqual((photo["comment_count"], photo["share_count"]), (77, 79))
 

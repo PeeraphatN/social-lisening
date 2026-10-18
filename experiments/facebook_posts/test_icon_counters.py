@@ -28,9 +28,18 @@ PHOTO_URL = "https://www.facebook.com/photo/?fbid=456&set=a.999"
 GROUP_URL = "https://www.facebook.com/groups/999/?multi_permalinks=123"
 
 
+def scoped_metrics(body, document, url):
+    """Supply an explicit rendered target; whole-page strings are no evidence."""
+    lines = body.splitlines()
+    if lines and lines[0] == "All reactions" and len(lines) > 1:
+        lines[:2] = [" ".join(lines[:2])]
+    return probe_post.extract_browser_metrics(body, document, url, rendered_containers=[
+        {"permalinks": [url], "counters": lines, "message_count": 1}])
+
+
 class IconCounterTests(unittest.TestCase):
     def extract(self, document, url=GROUP_URL, body="All reactions\n391\n77\n79"):
-        return probe_post.extract_browser_metrics(body, document, url)
+        return scoped_metrics(body, document, url)
 
     def test_photo_maps_media_to_story_before_reading_split_summary(self):
         media = {"currMedia": {"__typename": "Photo", "id": "456",

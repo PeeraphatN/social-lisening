@@ -7,6 +7,7 @@ import json
 import re
 import time
 from datetime import datetime, timezone
+from decimal import Decimal
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -62,6 +63,30 @@ def parse_count(text):
     multiplier = {"k": 1_000, "m": 1_000_000, "พัน": 1_000,
                   "หมื่น": 10_000, "แสน": 100_000, "ล้าน": 1_000_000}.get(unit, 1)
     return int(float(raw) * multiplier)
+
+
+DISPLAY_COUNT = r"([0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(\.[0-9]+)?\s*(หมื่น|พัน|แสน|ล้าน|[KkMm])?"
+
+
+def displayed_count(raw):
+    """Return count and its rounding interval; exact notation has no decimals."""
+    match = re.fullmatch(DISPLAY_COUNT, raw.strip()) if isinstance(raw, str) else None
+    if not match or (match[2] and not match[3]):
+        return None
+    value = Decimal(match[1].replace(",", "") + (match[2] or ""))
+    multiplier = {"k": 1000, "m": 1000000, "พัน": 1000, "หมื่น": 10000,
+                  "แสน": 100000, "ล้าน": 1000000}.get((match[3] or "").lower(), 1)
+    count = value * multiplier
+    half_step = Decimal(multiplier) / (10 ** len((match[2] or "")[1:])) / 2 if match[3] else 0
+    return {"count": int(count), "approximate": bool(match[3]),
+            "lower": max(0, count - half_step), "upper": count + half_step}
+
+
+def count_agrees(raw, exact_count):
+    value = displayed_count(raw)
+    return (value is not None and type(exact_count) is int and exact_count >= 0
+            and ((value["lower"] <= exact_count < value["upper"])
+                 if value["approximate"] else value["count"] == exact_count))
 
 
 def extract_social_metrics(body_text):
@@ -130,8 +155,10 @@ def extract_comment_counter(html, resolved_url):
                 pending.extend(node)
     if len(counts) != 1 or None in counts:
         return None
-    return {"count": counts.pop(), "post_id": post_id, "feedback_id": feedback_id,
-            "source": "embedded_comment_summary"}
+    count = counts.pop()
+    return {"count": count, "raw": str(count), "exact_count": count,
+            "post_id": post_id, "feedback_id": feedback_id,
+            "identity": {"post_id": post_id}, "source": "embedded_comment_summary"}
 
 
 def extract_icon_counters(html, resolved_url):
@@ -259,11 +286,9 @@ def extract_icon_counters(html, resolved_url):
         count = shares.get("count") if isinstance(shares, dict) else None
         is_empty = shares.get("is_empty") if isinstance(shares, dict) else None
         raw = feedback.get("i18n_share_count")
-        match = (re.fullmatch(r"([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*(หมื่น|พัน|แสน|ล้าน|[KkMm])?",
-                              raw.strip()) if isinstance(raw, str) else None)
-        displayed = parse_count(raw) if match else None
-        valid_raw = (match and (match.group(2) or ("." not in match.group(1) and displayed == count))
-                     and (displayed == 0) == (count == 0))
+        displayed = displayed_count(raw)
+        valid_raw = (count_agrees(raw, count)
+                     and (displayed["count"] == 0) == (count == 0))
         candidates["share"].add((raw.strip(), count)
                                 if (type(count) is int and count >= 0 and valid_raw
                                     and (not pfbid_path or (type(is_empty) is bool
@@ -273,28 +298,189 @@ def extract_icon_counters(html, resolved_url):
     for metric, values in candidates.items():
         if len(values) == 1 and None not in values:
             raw, exact_count = values.pop()
-            evidence[metric] = {"count": parse_count(raw), "raw": raw, "exact_count": exact_count,
+            evidence[metric] = {"count": displayed_count(raw)["count"], "raw": raw, "exact_count": exact_count,
                                 "post_id": post_id, "feedback_id": feedback_id,
                                 "identity": identity, "source": "embedded_ufi_summary"}
     return evidence
 
 
-def extract_browser_metrics(body_text, html, resolved_url):
-    """Keep browser counter semantics; fill missing identity-scoped icon counters."""
-    metrics = extract_social_metrics(body_text)
-    for metric in ("reaction", "comment", "share"):
-        metrics[f"{metric}_count_source"] = "body_text" if metrics[f"{metric}_count"] is not None else None
+def target_identity(url):
+    """Recognize only explicit post routes; reject duplicate identity parameters."""
+    validate_url(url)
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    path = parsed.path.rstrip("/")
+    if path in ("/story.php", "/permalink.php"):
+        ids = query.get("story_fbid", [])
+        owners = query.get("id", [])
+        if len(ids) == 1 and re.fullmatch(r"[0-9]+", ids[0]) and (not owners or
+                len(owners) == 1 and re.fullmatch(r"[0-9]+", owners[0])):
+            return {"kind": "post", "post_id": ids[0], "owner_id": owners[0] if owners else None}
+    group = re.fullmatch(r"/groups/([^/]+)(?:/(?:posts|permalink)/([0-9]+))?", path)
+    if group:
+        ids = query.get("multi_permalinks", [])
+        if group[2] and not ids:
+            ids = [group[2]]
+        if len(ids) == 1 and re.fullmatch(r"[0-9]+", ids[0]) and (not group[2] or ids[0] == group[2]):
+            return {"kind": "group", "group_id": group[1], "post_id": ids[0]}
+    if path in ("/photo", "/photo.php"):
+        ids = query.get("fbid", [])
+        if len(ids) == 1 and re.fullmatch(r"[0-9]+", ids[0]):
+            return {"kind": "photo", "photo_id": ids[0]}
+    if re.fullmatch(r"/[^/]+/posts/pfbid[A-Za-z0-9]+", path):
+        return {"kind": "pfbid", "route": path}
+    return None
+
+
+def identities_match(left, right):
+    if left is None or right is None or left["kind"] != right["kind"]:
+        return False
+    if left["kind"] == "post":
+        return (left["post_id"] == right["post_id"] and
+                (not left["owner_id"] or not right["owner_id"] or left["owner_id"] == right["owner_id"]))
+    return left == right
+
+
+def inspect_browser_metrics(page, requested_url):
+    """Capture one rendered snapshot. This boundary also supports offline replay."""
+    snapshot = page.evaluate(r"""() => {
+        const blocked = '[data-ad-rendering-role="story_message"], [data-ad-rendering-role="story_attachments"], '
+            + '[role="menu"], [role="dialog"], [role="complementary"], aside';
+        const visible = e => e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true});
+        const containers = [...document.querySelectorAll('[role="article"]')]
+            .filter(a => !a.parentElement.closest('[role="article"]') && visible(a))
+            .map(a => {
+                const owned = e => e instanceof HTMLElement && e.closest('[role="article"]') === a && visible(e);
+                const messages = [...a.querySelectorAll('[data-ad-rendering-role="story_message"]')].filter(owned);
+                const message = messages[0];
+                const headers = message ? [...a.querySelectorAll('a[href]')].filter(e => owned(e)
+                    && !e.closest(blocked) && (e.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING)) : [];
+                const counterNode = e => owned(e) && !e.closest(blocked) && message
+                    && (message.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING);
+                const controls = [...a.querySelectorAll('[role="button"], button')].filter(counterNode);
+                const counters = controls.filter(e => !controls.some(c => c !== e && e.contains(c)))
+                    .map(e => e.innerText.trim());
+                for (const e of a.querySelectorAll('*')) {
+                    if (!counterNode(e) || e.children.length || !/^(All reactions|ความรู้สึกทั้งหมด)$/i.test(e.innerText.trim())) continue;
+                    const parent = e.parentElement;
+                    if (parent !== a && counterNode(parent) && !controls.some(c => c.contains(e))) counters.push(parent.innerText.trim());
+                }
+                return {permalinks:headers.map(e => e.href), counters, message_count:messages.length};
+            });
+        return {containers, html:document.documentElement.outerHTML, resolved_url:location.href};
+    }""")
+    return extract_browser_metrics("", snapshot["html"], snapshot["resolved_url"], requested_url=requested_url,
+                                   rendered_containers=snapshot["containers"])
+
+
+def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None, rendered_containers=None):
+    """Accept body counters only from a unique rendered target, then scoped fallbacks.
+
+    body_text remains a compatibility argument and is never used as evidence.
+    rendered_containers must come from inspect_browser_metrics' rendered snapshot.
+    """
+    target = target_identity(resolved_url)
+    requested_url = requested_url or resolved_url
+    requested = target_identity(requested_url)
+    share_redirect = re.fullmatch(r"/share/p/[A-Za-z0-9]+/?", urlparse(requested_url).path)
+    consistent = target is not None and (identities_match(requested, target) or share_redirect)
+    status = "missing" if consistent else "conflicting"
+    candidates = []
+    for container in rendered_containers or []:
+        identities = []
+        malformed_header = False
+        for link in container["permalinks"]:
+            try:
+                identity = target_identity(link)
+            except ValueError:
+                continue
+            if identity is not None:
+                identities.append(identity)
+            else:
+                route = urlparse(link)
+                if (route.path.rstrip("/") in ("/story.php", "/permalink.php", "/photo", "/photo.php")
+                        or re.search(r"/(?:posts|permalink)/", route.path)
+                        or {"story_fbid", "multi_permalinks", "fbid"} & parse_qs(route.query, keep_blank_values=True).keys()):
+                    malformed_header = True
+        if any(identities_match(identity, target) for identity in identities):
+            candidates.append(container)
+            if malformed_header:
+                status = "malformed"
+            elif not all(identities_match(identity, target) for identity in identities):
+                status = "conflicting"
+            elif container["message_count"] != 1:
+                status = "ambiguous"
+    if len(candidates) > 1:
+        status = "ambiguous"
+    elif len(candidates) == 1 and status == "missing":
+        status = "target_scoped"
+
+    metrics = extract_social_metrics("")
+    metrics["body_scope_status"] = status
     metrics["comment_counter_evidence"] = extract_comment_counter(html, resolved_url)
     metrics["share_counter_evidence"] = None
+    metrics["reaction_counter_evidence"] = None
     zero = metrics["comment_counter_evidence"]
-    if metrics["comment_count"] is None and zero is not None and zero["count"] == 0:
+    if consistent and zero is not None and zero["count"] == 0:
         metrics.update(comment_count=0, comment_text_raw="0", comment_count_source=zero["source"])
     for metric, evidence in extract_icon_counters(html, resolved_url).items():
         metrics[f"{metric}_counter_evidence"] = evidence
-        if metrics[f"{metric}_count"] is None:
+        if consistent:
             metrics[f"{metric}_count"] = evidence["count"]
             metrics[f"{metric}_text_raw"] = evidence["raw"]
             metrics[f"{metric}_count_source"] = evidence["source"]
+
+    patterns = {"reaction": (rf"(?:All reactions|ความรู้สึกทั้งหมด|reactions?|likes?|ถูกใจ)\s+{DISPLAY_COUNT}",
+                             rf"{DISPLAY_COUNT}\s+(?:reactions?|likes?|ถูกใจ)"),
+                "comment": (rf"{DISPLAY_COUNT}\s+(?:comments?|ความคิดเห็น)",
+                            rf"comments?\s+{DISPLAY_COUNT}", rf"ความคิดเห็น\s+{DISPLAY_COUNT}\s+รายการ"),
+                "share": (rf"{DISPLAY_COUNT}\s+shares?", rf"shares?\s+{DISPLAY_COUNT}",
+                          rf"แชร์\s+{DISPLAY_COUNT}\s+ครั้ง")}
+    for metric, expressions in patterns.items():
+        body = []
+        malformed = False
+        if status == "target_scoped":
+            for raw in candidates[0]["counters"]:
+                for expression in expressions:
+                    match = re.fullmatch(expression, raw.strip(), re.IGNORECASE)
+                    if match:
+                        number = "".join(part or "" for part in match.groups())
+                        value = displayed_count(number)
+                        if value is not None:
+                            body.append({"count": value["count"], "raw": raw, "number_raw": number,
+                                         "approximate": value["approximate"], "identity": target,
+                                         "source": "body_text"})
+                        else:
+                            malformed = True
+                        break
+                else:
+                    if re.search({"reaction": r"reactions?|likes?|ถูกใจ|ความรู้สึกทั้งหมด",
+                                  "comment": r"comments?|ความคิดเห็น", "share": r"shares?|แชร์"}[metric], raw, re.I) and re.search(r"[0-9]", raw):
+                        malformed = True
+        body_evidence = body[0] if len(body) == 1 and not malformed else None
+        metrics[f"{metric}_body_evidence"] = body_evidence
+        scope_status = status if status != "target_scoped" else "missing"
+        if body_evidence:
+            metrics[f"{metric}_count"] = body_evidence["count"]
+            metrics[f"{metric}_text_raw"] = body_evidence["raw"]
+            metrics[f"{metric}_count_source"] = "body_text"
+            scope_status = "target_scoped"
+        elif malformed or len(body) > 1:
+            scope_status = "malformed" if malformed else "ambiguous"
+        if metrics[f"{metric}_count"] is not None and not body_evidence:
+            scope_status = "identity_scoped_fallback"
+        evidence = metrics[f"{metric}_counter_evidence"]
+        conflict = body_evidence and evidence and not count_agrees(
+            body_evidence["number_raw"], evidence.get("exact_count", evidence["count"]))
+        if conflict:
+            scope_status = "conflicting"
+        verification = "missing"
+        if metrics[f"{metric}_count"] is not None:
+            approximate = body_evidence["approximate"] if body_evidence else displayed_count(metrics[f"{metric}_text_raw"])["approximate"]
+            verification = "unverified" if conflict else "approximate" if approximate else "exact"
+        metrics.setdefault(f"{metric}_count_source", None)
+        metrics[f"{metric}_scope_status"] = scope_status
+        metrics[f"{metric}_verification_status"] = verification
     return metrics
 
 

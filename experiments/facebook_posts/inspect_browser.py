@@ -11,7 +11,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
-from probe_post import extract_browser_metrics, extract_post, validate_url
+from probe_post import inspect_browser_metrics, extract_post, validate_url
 
 
 root = Path(__file__).resolve().parent
@@ -55,7 +55,7 @@ with sync_playwright() as p:
             duration_seconds=round(time.monotonic() - started, 3),
             text_sha256=hashlib.sha256((result.get("text") or "").encode("utf-8")).hexdigest() if result.get("text") else None,
         )
-        result.update(extract_browser_metrics(body_text, html, page.url))
+        result.update(inspect_browser_metrics(page, url))
         # Local evidence only: runs/ is ignored; never upload full page content.
         (output / f"{args.run_id}-page.html").write_text(html, encoding="utf-8")
         (output / f"{args.run_id}-body.txt").write_text(body_text, encoding="utf-8")
