@@ -16,18 +16,72 @@ scope; compact raw notation always stays approximate. Readable means non-null,
 so unverified is an independent coverage count that can overlap readable/null.
 Zero is separate from positive exact counts. Error means use exact pairs only;
 percentage_error is signed, and percentage means exclude reference zero.
+
+Approximate rows retain comparison="approximate" and expose interval_compatibility
+(compatible, incompatible, or unavailable). Intervals use integer-count bounds:
+lower is inclusive, upper exclusive, rounded to the displayed decimal precision
+with half ties upward and a floor of zero. Only K/M and พัน/หมื่น/แสน/ล้าน are
+supported, optionally wrapped in the metric's known labels. Both operands must
+fit their own notation and their intervals must overlap; exact operands are
+single-count intervals. Optional reference text_raw supplies compact notation;
+without it an approximate reference has unavailable compatibility. No interval
+result is emitted across missing, unverified, or mismatched capture gates.
 """
 
 import argparse
 from datetime import datetime, timedelta
 import json
+from math import ceil
 from pathlib import Path
 import re
+
+from probe_post import DISPLAY_COUNT, displayed_count
 
 
 METRICS = ("reaction", "comment", "share")
 ACCEPTED_SCOPES = ("target_scoped", "identity_scoped_fallback")
-COMPACT = re.compile(r"\d(?:[\d,.]*)\s*(?:หมื่น|พัน|แสน|ล้าน|[kmb]\b)", re.IGNORECASE)
+DISPLAY_LABELS = {
+    "reaction": (r"(?:All reactions|ความรู้สึกทั้งหมด|reactions?|likes?|ถูกใจ)\s+{count}",
+                 r"{count}\s+(?:reactions?|likes?|ถูกใจ)"),
+    "comment": (r"comments?\s+{count}", r"{count}\s+(?:comments?|ความคิดเห็น)",
+                r"ความคิดเห็น\s+{count}\s+รายการ"),
+    "share": (r"shares?\s+{count}", r"{count}\s+shares?", r"แชร์\s+{count}\s+ครั้ง"),
+}
+
+
+def _display(raw, metric):
+    if not isinstance(raw, str):
+        return None
+    raw = raw.strip()
+    for pattern in ("{count}", *DISPLAY_LABELS[metric]):
+        match = re.fullmatch(pattern.format(count=rf"(?P<count>{DISPLAY_COUNT})"), raw, re.IGNORECASE)
+        if match:
+            return displayed_count(match["count"])
+    return None
+
+
+def _interval(raw, metric):
+    display = _display(raw, metric)
+    if display and display["approximate"]:
+        return {"lower": ceil(display["lower"]), "upper": ceil(display["upper"])}
+    return None
+
+
+def _interval_compatibility(row):
+    intervals = []
+    for operand in ("collector", "reference"):
+        value = row[f"{operand}_value"]
+        interval = row[f"{operand}_interval"]
+        if interval is not None and not interval["lower"] <= value < interval["upper"]:
+            return "incompatible"
+        if row[f"{operand}_classification"] == "approximate":
+            if interval is None:
+                return "unavailable"
+            intervals.append(interval)
+        else:
+            intervals.append({"lower": value, "upper": value + 1})
+    return ("compatible" if max(interval["lower"] for interval in intervals)
+            < min(interval["upper"] for interval in intervals) else "incompatible")
 
 
 def _text(row, field):
@@ -70,6 +124,10 @@ def validate_manifest(manifest):
             raise ValueError("classification must be exact or approximate")
         for field in ("surface", "session_id", "evidence"):
             _text(row, field)
+        if "text_raw" in row:
+            display = _display(row["text_raw"], row["metric"])
+            if not display or display["approximate"] != (row["classification"] == "approximate"):
+                raise ValueError("reference text_raw must use supported notation matching classification")
         _utc(row.get("observed_at"))
         key = (sample, row["metric"])
         if key in seen:
@@ -94,7 +152,10 @@ def _classification(result, metric):
     raw = result.get(f"{metric}_text_raw") or ""
     if not isinstance(raw, str):
         raise ValueError(f"{metric}_text_raw must be a string or null")
-    if COMPACT.search(raw) or result.get(f"{metric}_classification") == "approximate":
+    display = _display(raw, metric) if raw else None
+    if raw and display is None:
+        return "unverified"
+    if (display and display["approximate"]) or result.get(f"{metric}_classification") == "approximate":
         return "approximate"
     return "zero" if value == 0 else "exact"
 
@@ -139,8 +200,11 @@ def score_counters(inspections, manifest):
                    "collector_raw": result.get(f"{metric}_text_raw"),
                    "collector_classification": classification,
                    "reference_value": ref["value"] if ref else None,
+                   "reference_raw": ref.get("text_raw") if ref else None,
                    "reference_classification": ref_class,
                    "reference_evidence": ref["evidence"] if ref else None,
+                   "collector_interval": None, "reference_interval": None,
+                   "interval_compatibility": None,
                    "signed_error": None, "absolute_error": None,
                    "percentage_error": None, "absolute_percentage_error": None}
             if classification == "unverified":
@@ -153,6 +217,9 @@ def score_counters(inspections, manifest):
                 comparison = "not_comparable"
             elif "approximate" in (classification, ref_class):
                 comparison = "approximate"
+                row["collector_interval"] = _interval(row["collector_raw"], metric)
+                row["reference_interval"] = _interval(row["reference_raw"], metric)
+                row["interval_compatibility"] = _interval_compatibility(row)
             else:
                 comparison = "exact_pair"
                 signed = row["collector_value"] - ref["value"]

@@ -94,6 +94,123 @@ class CounterScoringTests(unittest.TestCase):
                           summary["missing_reference"]), (3, 1, 2, 1))
         self.assertIsNone(summary["mean_absolute_error"])
 
+    def test_compact_intervals_distinguish_compatible_values_and_boundaries(self):
+        # 1.2K rounds to [1150, 1250); the upper tie belongs to 1.3K.
+        for value, expected in ((1149, "incompatible"), (1150, "compatible"),
+                                (1200, "compatible"), (1249, "compatible"),
+                                (1250, "incompatible"), (5000, "incompatible")):
+            with self.subTest(value=value):
+                report = score_counters([inspection(value=value, reaction_text_raw="1.2K")],
+                                        [reference(value=value)])
+                row = report["rows"][0]
+                self.assertEqual(row["comparison"], "approximate")
+                self.assertEqual(row["interval_compatibility"], expected)
+                self.assertEqual(row["collector_interval"], {"lower": 1150, "upper": 1250})
+                for error in ("signed_error", "absolute_error", "percentage_error", "absolute_percentage_error"):
+                    self.assertIsNone(row[error])
+                    self.assertIsNone(report["metrics"]["reaction"][f"mean_{error}"])
+
+    def test_exact_reference_must_fit_collector_interval_too(self):
+        for value, expected in ((1150, "compatible"), (1249, "compatible"), (1250, "incompatible")):
+            with self.subTest(value=value):
+                report = score_counters([inspection(value=1200, reaction_text_raw="1.2K")],
+                                        [reference(value=value)])
+                self.assertEqual(report["rows"][0]["interval_compatibility"], expected)
+
+    def test_supported_compact_units_precision_and_metric_labels(self):
+        cases = (("1K", 500, 1500), ("1.20k reactions", 1195, 1205),
+                 ("All reactions 1.2M", 1150000, 1250000),
+                 ("1.2 พัน", 1150, 1250), ("1.3 หมื่น", 12500, 13500),
+                 ("2.5 แสน", 245000, 255000), ("1.2 ล้าน", 1150000, 1250000),
+                 ("0K", 0, 500), ("1,234.5K", 1234450, 1234550),
+                 ("1.2345K", 1235, 1235))
+        for raw, lower, upper in cases:
+            with self.subTest(raw=raw):
+                report = score_counters([inspection(value=lower, reaction_text_raw=raw)],
+                                        [reference(value=lower)])
+                row = report["rows"][0]
+                self.assertEqual(row["collector_interval"], {"lower": lower, "upper": upper})
+                self.assertEqual(row["interval_compatibility"],
+                                 "compatible" if lower < upper else "incompatible")
+        for metric, raw in (("comment", "comments 1.2K"), ("comment", "ความคิดเห็น 1.2 พัน รายการ"),
+                            ("share", "แชร์ 1.2 พัน ครั้ง"), ("share", "1.2M shares")):
+            with self.subTest(metric=metric, raw=raw):
+                value = 1200000 if "M" in raw else 1200
+                item = inspection(**{f"{metric}_count": value, f"{metric}_text_raw": raw,
+                                     f"{metric}_scope_status": "target_scoped"})
+                report = score_counters([item], [reference(metric=metric, value=value)])
+                row = next(row for row in report["rows"] if row["metric"] == metric)
+                self.assertEqual(row["interval_compatibility"], "compatible")
+
+    def test_approximate_reference_raw_is_optional_but_never_inferred(self):
+        for value, expected in ((1150, "compatible"), (1249, "compatible"), (1250, "incompatible")):
+            with self.subTest(value=value):
+                report = score_counters([inspection(value=value)],
+                                        [reference(value=1200, classification="approximate", text_raw="1.2K")])
+                row = report["rows"][0]
+                self.assertEqual(row["interval_compatibility"], expected)
+                self.assertEqual(row["reference_interval"], {"lower": 1150, "upper": 1250})
+                self.assertIsNone(row["signed_error"])
+        for fields in ({}, {"reaction_classification": "approximate"}):
+            report = score_counters([inspection(**fields)], [reference(classification="approximate")])
+            self.assertEqual(report["rows"][0]["interval_compatibility"], "unavailable")
+
+    def test_two_approximate_operands_use_interval_overlap(self):
+        for raw, value, expected in (("1.2K", 1200, "compatible"),
+                                     ("1.5K", 1500, "compatible"),
+                                     ("2K", 2000, "incompatible"),
+                                     ("1.2K", 5000, "incompatible")):
+            with self.subTest(raw=raw, value=value):
+                report = score_counters([inspection(value=1000, reaction_text_raw="1K")],
+                                        [reference(value=value, classification="approximate", text_raw=raw)])
+                self.assertEqual(report["rows"][0]["interval_compatibility"], expected)
+
+    def test_malformed_or_unsupported_raw_is_rejected_without_guessing(self):
+        for raw in ("1.2B", "1.2KK", "1,2K", "1..2K", "-1.2K", "+1.2K", "1e3K",
+                    "1.2K+", "about 1.2K", "1.2K 3 shares", "1.2K comments", "๑.๒ พัน", "1.2K!", "1.2"):
+            with self.subTest(raw=raw):
+                report = score_counters([inspection(value=1200, reaction_text_raw=raw)], [reference(value=1200)])
+                row = report["rows"][0]
+                self.assertEqual(row["comparison"], "unverified")
+                self.assertIsNone(row["interval_compatibility"])
+                self.assertEqual(report["metrics"]["reaction"]["comparable_exact"], 0)
+                with self.assertRaises(ValueError):
+                    validate_manifest([reference(value=1200, classification="approximate", text_raw=raw)])
+
+    def test_interval_scoring_obeys_missing_unverified_and_capture_gates(self):
+        cases = ((inspection(value=None, reaction_text_raw="1.2K"), reference(), "missing_collector"),
+                 (inspection(value=1200, reaction_text_raw="1.2K"), None, "missing_reference"),
+                 (inspection(value=1200, reaction_text_raw="1.2K", reaction_scope_status="conflicting"),
+                  reference(value=1200), "unverified"))
+        cases += tuple((inspection(value=1200, reaction_text_raw="1.2K"), reference(value=1200, **fields),
+                        "not_comparable") for fields in ({"session_id": "other"}, {"surface": "mobile"},
+                                                         {"observed_at": "2026-10-19T03:00:01Z"}))
+        for item, ref, comparison in cases:
+            with self.subTest(comparison=comparison):
+                report = score_counters([item], [ref] if ref else [])
+                row = report["rows"][0]
+                self.assertEqual(row["comparison"], comparison)
+                self.assertIsNone(row["interval_compatibility"])
+
+    def test_approximate_pairs_do_not_change_mixed_exact_aggregates(self):
+        report = score_counters([inspection("exact", 12), inspection("approx", 1200, reaction_text_raw="1.2K")],
+                                [reference("exact", 10), reference("approx", 5000)])
+        summary = report["metrics"]["reaction"]
+        self.assertEqual((summary["comparable_exact"], summary["percentage_pairs"]), (1, 1))
+        self.assertEqual(summary["mean_signed_error"], 2)
+        self.assertEqual(summary["mean_absolute_error"], 2)
+        self.assertEqual(summary["mean_percentage_error"], 20)
+        self.assertEqual(summary["mean_absolute_percentage_error"], 20)
+
+    def test_interval_report_replays_without_mutation_and_serializes(self):
+        items = [inspection("compact", 1200, reaction_text_raw="1.2K"), inspection("exact", 5000)]
+        refs = [reference("compact", 1249), reference("exact", 1200, classification="approximate", text_raw="1.2K")]
+        original = copy.deepcopy((items, refs))
+        report = score_counters(items, refs)
+        self.assertEqual(report, score_counters(list(reversed(items)), list(reversed(refs))))
+        self.assertEqual(report, json.loads(json.dumps(report)))
+        self.assertEqual((items, refs), original)
+
     def test_conflict_and_unproven_scope_are_unverified_even_when_non_null(self):
         for scope in ("conflicting", "ambiguous", "unverified", None, "unknown"):
             for value in (None, 10):
