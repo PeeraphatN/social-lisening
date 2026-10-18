@@ -407,18 +407,29 @@ def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
             }
             const controls = [...row.querySelectorAll('button,[role="button"]')].filter(e => visible(e)
                 && !toolbar.contains(e) && owns(e));
+            const counterNumber = raw => {
+                const match = String(raw).match(new RegExp(countPattern, 'i'));
+                return match ? match[0].replace(/\\s/g, '').toLowerCase() : null;
+            };
+            const addMetricCounter = (metric, raw) => {
+                const pattern = metric === 'comment' ? /comments?|ความคิดเห็น/i : /shares?|แชร์/i;
+                if (!counters.some(existing => pattern.test(existing) && counterNumber(existing) === counterNumber(raw))) {
+                    counters.push(raw);
+                }
+            };
             let bare = 0;
             for (const control of controls) {
                 const label = control.getAttribute('aria-label') || '';
                 const text = control.innerText.trim();
                 if (/(?:comment|ความคิดเห็น)/i.test(label + ' ' + text) && /[0-9]/.test(label + ' ' + text)) {
-                    counters.push(/[0-9]/.test(label) ? label : `${text} comments`);
+                    addMetricCounter('comment', /[0-9]/.test(label) ? label : `${text} comments`);
                 } else if (/(?:share|แชร์)/i.test(label + ' ' + text) && /[0-9]/.test(label + ' ' + text)) {
-                    counters.push(/[0-9]/.test(label) ? label : `${text} shares`);
+                    addMetricCounter('share', /[0-9]/.test(label) ? label : `${text} shares`);
                 }
                 else if (/(?:reaction|like|love|haha|wow|sad|angry|ถูกใจ|รักเลย|ฮ่า|ว้าว|เศร้า|โกรธ)/i.test(label)) continue;
                 else if (/^[0-9][0-9.,]*\s*(?:พัน|หมื่น|แสน|ล้าน|K|M)?$/i.test(text)) {
-                    counters.push(`${text} ${bare++ === 0 ? 'comments' : 'shares'}`);
+                    const metric = bare++ === 0 ? 'comment' : 'share';
+                    addMetricCounter(metric, `${text} ${metric === 'comment' ? 'comments' : 'shares'}`);
                 }
             }
             const article = toolbar.closest('[role="article"]');

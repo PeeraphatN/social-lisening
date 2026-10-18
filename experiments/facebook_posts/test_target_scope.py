@@ -150,6 +150,24 @@ class TargetScopeTests(unittest.TestCase):
         result = self.inspect(row)
         self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [275, 1, 414])
 
+    def test_explicit_share_label_and_same_control_are_one_counter(self):
+        label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
+        row = (f'<div><span role="toolbar" aria-label="{label}"></span>'
+               '<div>ความรู้สึกทั้งหมด</div><div>7</div><div>แชร์ 6 ครั้ง</div>'
+               '<button aria-label="6 shares">6</button></div>')
+        result = self.inspect(row)
+        self.assertEqual(result["share_count"], 6)
+        self.assertEqual(result["share_scope_status"], "target_scoped")
+
+    def test_conflicting_share_summary_and_control_are_not_silently_deduped(self):
+        label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
+        row = (f'<div><span role="toolbar" aria-label="{label}"></span>'
+               '<div>ความรู้สึกทั้งหมด</div><div>7</div><div>แชร์ 6 ครั้ง</div>'
+               '<button aria-label="7 shares">7</button></div>')
+        result = self.inspect(row)
+        self.assertIsNone(result["share_count"])
+        self.assertEqual(result["share_scope_status"], "ambiguous")
+
     def test_story_row_requires_consistent_page_identity_and_unique_toolbar(self):
         label = 'See who reacted to this story'
         row = f'<div><span aria-label="{label}">x</span><button aria-label="Like: 395">395</button><button>77</button><button>79</button></div>'
