@@ -39,3 +39,25 @@ re-read whole files.
 After big code changes, refresh the graph with `graft build` (deterministic,
 no API key, $0).
 <!-- graft:end -->
+
+## GitHub issue/comment writing style
+
+When writing GitHub issues or comments, use the repo style in
+`docs/github-writing-style.md`.
+
+Write like the project owner taking working notes, not like an agent audit log.
+Keep it concise, direct, and practical. Thai is OK; use technical English terms
+when clearer.
+
+Preferred shape for updates:
+
+1. รอบนี้ทำอะไร
+2. ผลที่ได้
+3. ที่เจอ
+4. แก้แล้ว
+5. ยังไม่สรุป
+6. งานต่อ
+
+Keep important caveats, but write them plainly. Avoid legalistic/report wording,
+excessive defensive caveats, and long paragraphs that mix result, caveat, fix,
+and next step together.
