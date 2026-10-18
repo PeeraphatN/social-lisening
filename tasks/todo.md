@@ -38,10 +38,10 @@ See `tasks/coverage-first-plan.md`.
 
 - [x] Find projection bug: global regex counted Share number before `ถูกใจ` action as an extra Reaction
 - [x] Confirm P02/P05 body-row ordering from local saved snapshots; no Facebook requests
-- [ ] Rebuild offline P01–P10 value/evidence table from rendered article DOM, not global regex
-- [ ] Amend #8 scope decision to trust validated selected-post identity + unique target article/engagement row
-- [ ] Add failing tests for route alias, metric association, comments/replies, and unrelated/duplicate articles
-- [ ] Implement minimal body extraction relaxation and preserve scope/verification evidence
-- [ ] Replay snapshots and review per-metric coverage with user
+- [x] Rebuild offline P01–P10 value/evidence table from post-level engagement rows, not global regex
+- [x] Amend #8 scope decision to trust validated requested/resolved identity + unique post-level engagement row
+- [x] Add failing tests for route alias, metric association, comments/replies, and unrelated/duplicate rows
+- [x] Implement body extraction from unique story engagement row; keep page-wide scans and ambiguous rows rejected
+- [x] Replay saved snapshots offline: candidate coverage 30/30 (P07 Reaction/Share remain approximate); old 28/30 projection discarded
 - [ ] Re-score only after references are corrected and confirmed
-- [ ] Run suite; then one frozen-hash sequential live run if offline criteria pass
+- [ ] Freeze source hashes, then run one sequential anonymous P01–P10 live validation

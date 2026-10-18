@@ -348,9 +348,9 @@ def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
         const blocked = '[data-ad-rendering-role="story_message"], [data-ad-rendering-role="story_attachments"], '
             + '[role="comment"], [role="menu"], [role="dialog"], [role="complementary"], aside';
         const visible = e => e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true});
-        const containers = [...document.querySelectorAll('[role="article"]')]
-            .filter(a => !a.parentElement.closest('[role="article"]') && visible(a))
-            .map(a => {
+        const articles = [...document.querySelectorAll('[role="article"]')]
+            .filter(a => !a.parentElement.closest('[role="article"]') && visible(a));
+        const containers = articles.map((a, article_index) => {
                 const owned = e => e instanceof HTMLElement && e.closest('[role="article"]') === a && visible(e);
                 const messages = [...a.querySelectorAll('[data-ad-rendering-role="story_message"]')].filter(owned);
                 const message = messages[0];
@@ -368,37 +368,69 @@ def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
                     if (parent !== a && counterNode(parent) && !controls.some(c => c.contains(e))) counters.push(parent.innerText.trim());
                 }
                 return {permalinks:headers.map(e => e.href), counters, message_count:messages.length,
-                        message_has_target_link: !!message?.querySelector('a[href]')};
+                        message_has_target_link: !!message?.querySelector('a[href]'), article_index};
             });
         const storyLabel = /(?:ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้|see who reacted to this story)/i;
-        const storyRows = [...document.querySelectorAll('[aria-label]')].filter(e => visible(e) && storyLabel.test(e.getAttribute('aria-label') || ''))
-            .map(toolbar => {
-                let row = toolbar;
-                for (let depth = 0; depth < 5 && row.parentElement; depth++) {
-                    const parent = row.parentElement;
-                    if (parent.closest('[role="article"]')) break;
-                    if ([...parent.querySelectorAll('button,[role="button"]')].filter(visible).length >= 3) { row = parent; break; }
-                    row = parent;
+        const storyToolbars = [...document.querySelectorAll('[aria-label]')].filter(e => visible(e) && storyLabel.test(e.getAttribute('aria-label') || ''));
+        const storyRows = storyToolbars.map(toolbar => {
+            const counters = [];
+            let reactionSummary = null;
+            const countPattern = '[0-9][0-9.,]*[ \\t]*(?:พัน|หมื่น|แสน|ล้าน|K|M)?';
+            for (let node = toolbar.parentElement, depth = 0; node && depth < 8; node = node.parentElement, depth++) {
+                const text = node.innerText;
+                const marker = /(?:All reactions|ความรู้สึกทั้งหมด)/i.exec(text);
+                if (!marker) continue;
+                const tail = text.slice(marker.index + marker[0].length);
+                const reactionMatch = tail.match(new RegExp('^\\s*(' + countPattern + ')', 'i'));
+                if (!reactionMatch) continue;
+                reactionSummary = reactionMatch[1].trim();
+                const actions = /(?:^|\\n)(?:ถูกใจ|แสดงความคิดเห็น|Like|Comment|Share)(?:\\n|$)/i.exec(tail);
+                const summary = actions ? tail.slice(0, actions.index) : tail;
+                const commentMatch = summary.match(new RegExp('(?:^|\\n)(' + countPattern + ')[ \\t]*(?:comments?|ความคิดเห็น)(?=\\n|$)|(?:^|\\n)ความคิดเห็น[ \\t]*(' + countPattern + ')[ \\t]*รายการ(?=\\n|$)', 'i'));
+                const shareMatch = summary.match(new RegExp('(?:^|\\n)แชร์[ \\t]*(' + countPattern + ')[ \\t]*ครั้ง(?=\\n|$)|(?:^|\\n)(' + countPattern + ')[ \\t]*shares?(?=\\n|$)', 'i'));
+                if (commentMatch) counters.push(`${(commentMatch[1] || commentMatch[2]).trim()} comments`);
+                if (shareMatch) counters.push(`${(shareMatch[1] || shareMatch[2]).trim()} shares`);
+                if (commentMatch || shareMatch || (tail.match(new RegExp(countPattern, 'gi')) || []).length >= 3) break;
+            }
+            if (reactionSummary) counters.unshift(`All reactions ${reactionSummary}`);
+
+            const postArticle = toolbar.closest('[role="article"]');
+            const owns = e => !e.closest('[role="comment"], [role="menu"], [role="dialog"]')
+                && (postArticle ? e.closest('[role="article"]') === postArticle : !e.closest('[role="article"]'));
+            let row = toolbar;
+            for (let depth = 0; depth < 8 && row.parentElement; depth++) {
+                row = row.parentElement;
+                const controls = [...row.querySelectorAll('button,[role="button"]')].filter(e => visible(e)
+                    && !toolbar.contains(e) && owns(e));
+                if (/(?:All reactions|ความรู้สึกทั้งหมด)/i.test(row.innerText)
+                    && controls.some(e => /[0-9]/.test((e.getAttribute('aria-label') || '') + ' ' + e.innerText))) break;
+            }
+            const controls = [...row.querySelectorAll('button,[role="button"]')].filter(e => visible(e)
+                && !toolbar.contains(e) && owns(e));
+            let bare = 0;
+            for (const control of controls) {
+                const label = control.getAttribute('aria-label') || '';
+                const text = control.innerText.trim();
+                if (/(?:comment|ความคิดเห็น)/i.test(label + ' ' + text) && /[0-9]/.test(label + ' ' + text)) {
+                    counters.push(/[0-9]/.test(label) ? label : `${text} comments`);
+                } else if (/(?:share|แชร์)/i.test(label + ' ' + text) && /[0-9]/.test(label + ' ' + text)) {
+                    counters.push(/[0-9]/.test(label) ? label : `${text} shares`);
                 }
-                const controls = [...row.querySelectorAll('button,[role="button"]')].filter(e => visible(e) && !e.closest('[role="comment"],[role="article"]'));
-                const counters = [];
-                let bare = 0;
-                for (const control of controls) {
-                    const label = control.getAttribute('aria-label') || '';
-                    const text = control.innerText.trim();
-                    if (/(?:comment|ความคิดเห็น)/i.test(label) && /[0-9]/.test(label)) counters.push(label);
-                    else if (/(?:share|แชร์)/i.test(label) && /[0-9]/.test(label)) counters.push(label);
-                    else if (storyLabel.test(label)) {
-                        if (/[0-9]/.test(text)) { counters.push(`${text} reactions`); bare = 1; }
-                    } else if (/^[0-9][0-9.,]*\s*(?:พัน|หมื่น|ล้าน)?$/.test(text)) {
-                        counters.push(bare++ === 0 ? `${text} reactions` : bare === 2 ? `${text} comments` : `${text} shares`);
-                    }
+                else if (/(?:reaction|like|love|haha|wow|sad|angry|ถูกใจ|รักเลย|ฮ่า|ว้าว|เศร้า|โกรธ)/i.test(label)) continue;
+                else if (/^[0-9][0-9.,]*\s*(?:พัน|หมื่น|แสน|ล้าน|K|M)?$/i.test(text)) {
+                    counters.push(`${text} ${bare++ === 0 ? 'comments' : 'shares'}`);
                 }
-                return {permalinks:[], counters, message_count:1, message_has_target_link:false, story_row:true};
-            });
-        const uniqueRows = new Map();
-        for (const row of storyRows) uniqueRows.set(JSON.stringify(row.counters), row);
-        containers.push(...uniqueRows.values());
+            }
+            const article = toolbar.closest('[role="article"]');
+            const scoped = article && containers.find(container => container.article_index === articles.indexOf(article));
+            if (scoped) {
+                scoped.counters = counters;
+                scoped.story_row = true;
+                return null;
+            }
+            return {permalinks:[], counters, message_count:0, message_has_target_link:false, story_row:true};
+        }).filter(Boolean);
+        containers.push(...storyRows);
         return {containers, html:document.documentElement.outerHTML, resolved_url:location.href,
                 body_text:document.body ? document.body.innerText : '', title:document.title, observed_at,
                 messages:[...document.querySelectorAll('[data-ad-rendering-role="story_message"]')].map(e => e.innerText)};
@@ -453,7 +485,13 @@ def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None
                 status = "conflicting"
             elif container["message_count"] != 1:
                 status = "ambiguous"
-    if len(candidates) > 1:
+    story_rows = [container for container in rendered_containers or [] if container.get("story_row")]
+    if consistent and len(story_rows) == 1:
+        candidates = story_rows
+        status = "target_scoped"
+    elif story_rows and len(story_rows) != 1:
+        status = "ambiguous"
+    elif len(candidates) > 1:
         status = "ambiguous"
     elif len(candidates) == 1 and status == "missing":
         status = "target_scoped"

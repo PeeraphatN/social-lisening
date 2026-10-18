@@ -114,15 +114,53 @@ class TargetScopeTests(unittest.TestCase):
 
     def test_story_toolbar_row_recovers_bare_thai_counters_outside_articles(self):
         label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
-        row = (f'<div><button aria-label="{label}">1.1 พัน</button>'
-               '<button>374</button><button>353</button></div>')
+        row = (f'<div><span role="toolbar" aria-label="{label}"></span>'
+               '<div><span>ความรู้สึกทั้งหมด</span><span>1.1 พัน</span></div>'
+               '<div role="button">374</div><div role="button">353</div>'
+               '<button>Like</button><button>Share</button></div>')
         result = self.inspect(row)
         self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")],
                          [1100, 374, 353])
-        self.assertTrue(result["reaction_text_raw"].startswith("1.1 พัน"))
+        self.assertIn("1.1 พัน", result["reaction_text_raw"])
+
+    def test_story_toolbar_uses_total_not_reaction_type_breakdown(self):
+        label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
+        row = (f'<div><span role="toolbar" aria-label="{label}"></span>'
+               '<div>ความรู้สึกทั้งหมด</div><div>395</div>'
+               '<div role="button" aria-label="ถูกใจ: 342 คน">342</div>'
+               '<div role="button" aria-label="รักเลย: 44 คน">44</div>'
+               '<div role="button">77</div><div role="button">79</div></div>')
+        result = self.inspect(row)
+        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [395, 77, 79])
+
+    def test_story_toolbar_p05_and_explicit_labels(self):
+        label = 'See who reacted to this story'
+        row = (f'<div><span role="toolbar" aria-label="{label}"></span>'
+               '<div><span>All reactions</span><span>395</span></div>'
+               '<div role="button" aria-label="77 comments">77</div>'
+               '<div role="button" aria-label="79 shares">79</div></div>')
+        result = self.inspect(row)
+        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [395, 77, 79])
+
+    def test_story_summary_does_not_mistake_reactions_for_comment_count(self):
+        label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
+        row = (f'<div><span role="toolbar" aria-label="{label}"></span>'
+               '<div>ความรู้สึกทั้งหมด</div><div>275</div>'
+               '<div>ความคิดเห็น 1 รายการ</div><div>แชร์ 414 ครั้ง</div></div>')
+        result = self.inspect(row)
+        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [275, 1, 414])
+
+    def test_story_row_requires_consistent_page_identity_and_unique_toolbar(self):
+        label = 'See who reacted to this story'
+        row = f'<div><span aria-label="{label}">x</span><button aria-label="Like: 395">395</button><button>77</button><button>79</button></div>'
+        self.assertIsNone(self.inspect(row, requested_url=URL.replace('123', '987'))['reaction_count'])
+        result = self.inspect(row + row)
+        self.assertIsNone(result['reaction_count'])
+        self.assertEqual(result['reaction_scope_status'], 'ambiguous')
 
     def test_story_toolbar_row_explicit_labels_and_like_action(self):
-        row = ('<div><button aria-label="ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้">24</button>'
+        row = ('<div><span role="toolbar" aria-label="ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้"></span>'
+               '<div>ความรู้สึกทั้งหมด</div><div>24</div>'
                '<button aria-label="1 comment">1</button><button aria-label="2 shares">2</button>'
                '<button>Like</button><button>Share</button></div>')
         result = self.inspect(row)
@@ -130,11 +168,15 @@ class TargetScopeTests(unittest.TestCase):
 
     def test_story_toolbar_replies_are_excluded_and_duplicate_rows_deduped(self):
         label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
-        row = (f'<div><button aria-label="{label}">395</button><button>77</button><button>79</button>'
+        row = (f'<div><span role="toolbar" aria-label="{label}"></span><div>All reactions</div><div>395</div>'
+               '<button>77</button><button>79</button>'
                '<div role="comment"><button aria-label="1 reaction on comment">1</button>'
                '<button>Reply</button></div></div>')
-        result = self.inspect(row + row)
+        result = self.inspect(row)
         self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [395, 77, 79])
+        duplicate = self.inspect(row + row)
+        self.assertIsNone(duplicate["reaction_count"])
+        self.assertEqual(duplicate["reaction_scope_status"], "ambiguous")
 
     def test_conflicting_story_toolbar_rows_fail_closed(self):
         label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
