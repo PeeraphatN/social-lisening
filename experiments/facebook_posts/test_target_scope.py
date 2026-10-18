@@ -47,7 +47,7 @@ class TargetScopeTests(unittest.TestCase):
         page = self.browser.new_page()
         # No page script or external resource can contact Facebook during tests.
         page.route("**/*", lambda route: route.fulfill(
-            status=200, content_type="text/html", body=content)
+            status=200, content_type="text/html; charset=utf-8", body=content)
             if route.request.is_navigation_request() else route.abort())
         try:
             page.goto(url, wait_until="domcontentloaded")
@@ -112,6 +112,36 @@ class TargetScopeTests(unittest.TestCase):
         self.assertEqual(result["share_count"], 2)
         self.assertEqual(result["reaction_scope_status"], "target_scoped")
 
+    def test_story_toolbar_row_recovers_bare_thai_counters_outside_articles(self):
+        label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
+        row = (f'<div><button aria-label="{label}">1.1 พัน</button>'
+               '<button>374</button><button>353</button></div>')
+        result = self.inspect(row)
+        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")],
+                         [1100, 374, 353])
+        self.assertTrue(result["reaction_text_raw"].startswith("1.1 พัน"))
+
+    def test_story_toolbar_row_explicit_labels_and_like_action(self):
+        row = ('<div><button aria-label="ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้">24</button>'
+               '<button aria-label="1 comment">1</button><button aria-label="2 shares">2</button>'
+               '<button>Like</button><button>Share</button></div>')
+        result = self.inspect(row)
+        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [24, 1, 2])
+
+    def test_story_toolbar_replies_are_excluded_and_duplicate_rows_deduped(self):
+        label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
+        row = (f'<div><button aria-label="{label}">395</button><button>77</button><button>79</button>'
+               '<div role="comment"><button aria-label="1 reaction on comment">1</button>'
+               '<button>Reply</button></div></div>')
+        result = self.inspect(row + row)
+        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [395, 77, 79])
+
+    def test_conflicting_story_toolbar_rows_fail_closed(self):
+        label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
+        row = lambda n: f'<div><button aria-label="{label}">{n}</button><button>77</button><button>79</button></div>'
+        result = self.inspect(row(395) + row(396))
+        self.assertIsNone(result["reaction_count"])
+
     def test_link_inside_message_cannot_prove_target(self):
         content = article().replace(f'<a href="{URL}">Timestamp</a>', '').replace(
             'Synthetic post', f'<a href="{URL}">Quoted target</a>')
@@ -147,7 +177,7 @@ class TargetScopeTests(unittest.TestCase):
         page = self.browser.new_page()
         content = '<title>Before mutation</title>' + article()
         page.route("**/*", lambda route: route.fulfill(
-            status=200, content_type="text/html", body=content)
+            status=200, content_type="text/html; charset=utf-8", body=content)
             if route.request.is_navigation_request() else route.abort())
 
         class MutatingPage:

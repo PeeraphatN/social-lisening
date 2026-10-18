@@ -370,6 +370,35 @@ def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
                 return {permalinks:headers.map(e => e.href), counters, message_count:messages.length,
                         message_has_target_link: !!message?.querySelector('a[href]')};
             });
+        const storyLabel = /(?:ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้|see who reacted to this story)/i;
+        const storyRows = [...document.querySelectorAll('[aria-label]')].filter(e => visible(e) && storyLabel.test(e.getAttribute('aria-label') || ''))
+            .map(toolbar => {
+                let row = toolbar;
+                for (let depth = 0; depth < 5 && row.parentElement; depth++) {
+                    const parent = row.parentElement;
+                    if (parent.closest('[role="article"]')) break;
+                    if ([...parent.querySelectorAll('button,[role="button"]')].filter(visible).length >= 3) { row = parent; break; }
+                    row = parent;
+                }
+                const controls = [...row.querySelectorAll('button,[role="button"]')].filter(e => visible(e) && !e.closest('[role="comment"],[role="article"]'));
+                const counters = [];
+                let bare = 0;
+                for (const control of controls) {
+                    const label = control.getAttribute('aria-label') || '';
+                    const text = control.innerText.trim();
+                    if (/(?:comment|ความคิดเห็น)/i.test(label) && /[0-9]/.test(label)) counters.push(label);
+                    else if (/(?:share|แชร์)/i.test(label) && /[0-9]/.test(label)) counters.push(label);
+                    else if (storyLabel.test(label)) {
+                        if (/[0-9]/.test(text)) { counters.push(`${text} reactions`); bare = 1; }
+                    } else if (/^[0-9][0-9.,]*\s*(?:พัน|หมื่น|ล้าน)?$/.test(text)) {
+                        counters.push(bare++ === 0 ? `${text} reactions` : bare === 2 ? `${text} comments` : `${text} shares`);
+                    }
+                }
+                return {permalinks:[], counters, message_count:1, message_has_target_link:false, story_row:true};
+            });
+        const uniqueRows = new Map();
+        for (const row of storyRows) uniqueRows.set(JSON.stringify(row.counters), row);
+        containers.push(...uniqueRows.values());
         return {containers, html:document.documentElement.outerHTML, resolved_url:location.href,
                 body_text:document.body ? document.body.innerText : '', title:document.title, observed_at,
                 messages:[...document.querySelectorAll('[data-ad-rendering-role="story_message"]')].map(e => e.innerText)};
