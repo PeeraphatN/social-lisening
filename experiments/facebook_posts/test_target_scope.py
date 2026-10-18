@@ -1,6 +1,11 @@
 """Synthetic rendered pages; every request is fulfilled locally or aborted."""
 
+import os
 import unittest
+from pathlib import Path
+
+browser_path = Path(__file__).resolve().parent / ".playwright"
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(browser_path))
 
 from playwright.sync_api import sync_playwright
 
