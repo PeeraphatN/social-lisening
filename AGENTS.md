@@ -61,3 +61,17 @@ Preferred shape for updates:
 Keep important caveats, but write them plainly. Avoid legalistic/report wording,
 excessive defensive caveats, and long paragraphs that mix result, caveat, fix,
 and next step together.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the repository's five canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use the single-context domain documentation layout. See `docs/agents/domain.md`.
