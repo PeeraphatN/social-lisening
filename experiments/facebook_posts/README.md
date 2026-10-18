@@ -31,11 +31,12 @@ python -m unittest discover -s experiments/facebook_posts -p 'test_*.py'
 
 - เก็บยอดตามหน้า browser; ไม่รับประกันว่า `comment_count` รวม replies แบบ mobile app ผู้ใช้ตรวจ P03/P04 แล้วพบว่า browser กับ app แสดงคนละยอด
 - เลขย่อ เช่น `1.1 พัน` หรือ `2.3 หมื่น` เป็นค่าประมาณ เก็บ raw text ไว้ด้วย ไม่ใช่ยอดเต็มที่แน่นอน
-- `null` หมายถึงยังอ่านหรือยืนยันไม่ได้ ไม่ใช่ศูนย์ สำหรับ resolved `story.php` สามารถเติม comment=0 จาก summary ที่ตรวจ feedback ID ตรงกับ post ID ทั้งสองชั้น
-- Photo/group ที่ counter เป็นไอคอน ใช้ embedded UFI summary เติมเฉพาะยอดที่ขาด พร้อม `*_count_source` และ `*_counter_evidence`: photo ต้องจับคู่ media ID → story ID → feedback ID; group ต้องตรง permalink ที่ขอ ไม่ใช้ยอดจากโพสต์อื่น
-- ยอดที่อ่านจาก body text ยังสแกนทั้งหน้า ไม่ถือว่า target scope ได้รับการยืนยันทุก metric
-- Opaque `pfbid` ใช้ embedded UFI summary ได้เมื่อ route → story → post → feedback identity ตรงกันครบและมี candidate เดียว ข้อมูล Share ต้องมี `is_empty` แบบ boolean ที่สอดคล้องกับ count; ถ้าขาด ขัดกัน หรือกำกวมให้คง `null`
-- P03 Share=0 อ่านได้จาก identity-scoped summary แล้ว ผล live ใหม่ยืนยัน P03 Comment=4/Share=0 และ P04 Comment=1/Share=414; ค่าบวกของ P04 ตรงกับ body ดู [diagnosis, confirmation และ counter repeat](../../docs/experiments/facebook-post-counter-followup-20261012.md)
+- `null` หมายถึงยังอ่านหรือยืนยันไม่ได้ ไม่ใช่ศูนย์ สำหรับ resolved `story.php` เติมได้เฉพาะ comment=0 จาก summary ที่ตรวจ feedback ID ตรงกับ post ID ทั้งสองชั้น ยอด comment บวกจาก summary ยังไม่เติม
+- ยอดจาก body ต้องอ่านจาก rendered target container เดียวที่พิสูจน์ได้ว่าผูกกับ requested/resolved route header/permalink ของ layout ปัจจุบันพิสูจน์ไม่ได้ (URL ที่ขอเป็น `share/p` resolve ไป canonical alias `posts/pfbid…`/`story.php` พร้อมพารามิเตอร์ `rdid`) จึงยัง unsupported บนทุก layout ทั้ง 10 ตัวอย่าง และคง `null` ไม่สแกน body ทั้งหน้า
+- Identity-scoped embedded fallback เป็นทางอ่านที่ใช้ได้สำหรับ photo, group, numeric story และ opaque `pfbid` พร้อม `*_count_source` และ `*_counter_evidence` ทุกค่า: photo ต้องจับคู่ media ID → story ID → feedback ID; group ต้องตรง permalink ที่ขอ ไม่ใช้ยอดจากโพสต์อื่น; pfbid ต้อง route → story → post → feedback identity ตรงกันครบและมี candidate เดียว ข้อมูล Share ต้องมี `is_empty` แบบ boolean ที่สอดคล้องกับ count; ถ้าขาด ขัดกัน หรือกำกวมให้คง `null`
+- ทุก metric มี `*_scope_status` แยก `target_scoped`, `identity_scoped_fallback`, `ambiguous`, `missing`, `conflicting` และเก็บ `*_body_evidence` ไว้ตรวบค่าที่ scope ขัดกันคงเป็น unverified ไม่เลือกค่าใดอัตโนมัติ
+- 0 แท้ต้องมาจาก target-scoped body text หรือ identity-scoped summary ที่สอดคล้องภายใน; label ที่หายไปไม่สร้างศูนย์ปลอม P03 Share=0 และ P10 Comment=0 คงเป็น explicit zero พร้อมหลักฐาน ดูผลก่อน ๆ ที่ [diagnosis, confirmation และ counter repeat](../../docs/experiments/facebook-post-counter-followup-20261012.md)
+- ผล final run หลังจำกัด scope (18 ต.ค. 2026): reaction 0/10, comment 6/10, share 5/10 ค่าที่อ่านได้ทุกช่องมาจาก `identity_scoped_fallback` และ 4 คู่ exact จาก session เดียวกันมี error 0 ดู [final live validation](../../docs/experiments/facebook-post-counter-final-20261018.md) ผลเก่า 29/30 มาจาก body scan ทั้งหน้าที่อ่านยอดโพสต์อื่นได้ เทียบกับผลใหม่ตรง ๆ ไม่ได้
 - แยก offline replay, live collection และ human reference ออกจากกัน การอ่านได้เป็น coverage ไม่ใช่หลักฐาน accuracy; reference ต้องระบุ surface และเวลาที่ตรวจ เลขที่เปลี่ยนตามเวลาหรือ scope ต่างกันไม่ใช้ตั้ง tolerance โดยอัตโนมัติ
 
 ## รันซ้ำชุดที่ผู้ใช้ตรวจแล้ว
