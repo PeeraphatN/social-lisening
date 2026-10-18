@@ -37,16 +37,30 @@ Coverage จาก saved snapshot รอบนี้ได้ 30/30: Reaction 10
 - Bare Comment/Share รับตามลำดับใน row; action labels, comment/reply, menu และ nested article ไม่ถูกนำมารวม
 - ถ้า identity chain ไม่สอดคล้องหรือมีหลาย story rows ให้ fail closed; identity-scoped structured fallback และ null-vs-zero rules ยังอยู่
 - เพิ่ม browser-seam regressions สำหรับ P02/P05 row ordering, Reaction total เทียบกับ Like/Love breakdown, P04 label order, alias route, reply exclusion และ duplicate/conflicting rows
-- Offline suite ผ่าน 107/107 tests
+- Offline suite ผ่าน 109/109 tests
+
+## Final live validation หลังแก้ duplicate label
+
+รัน `counter-scope-final-20261018T212903Z` แบบ anonymous หลัง freeze source hashes:
+
+- P01–P10 ครบ, HTTP 200 ทั้งหมด, ไม่มี challenge/login marker, ไม่มี hash เปลี่ยน
+- คิว serialized; ระยะห่างระหว่าง requests 22.2–36.9 วินาที
+- coverage 30/30: Reaction 10/10, Comment 10/10, Share 10/10
+- P07 Reaction `3.9 หมื่น` และ Share `1.5 พัน` เป็น approximate; P02 Reaction `1.1 พัน` เป็น approximate
+- P03 Share=0 และ P10 Comment=0 มาจาก identity-scoped embedded summary; รักษา explicit zero
+- P05 status เป็น `preview_only` แม้มี counter row ที่ scope ผ่าน; คง status นี้ไว้ ไม่ยกระดับเป็น full-post page
+- Source hashes ตรงก่อน/หลัง run: `probe_post.py` `97eec3c9…`, `inspect_browser.py` `eab416e0…`, `score_counters.py` `cb1c1b27…`; full hashes อยู่ใน ignored run summary
+- P10 ใน run ก่อนหน้า `counter-scope-final-20261018T212321Z` ให้ Share=null เพราะ DOM ซ้ำค่าจาก summary กับ control label แล้วถูกตีเป็น malformed แก้ให้รวมเฉพาะค่าที่เท่ากัน; ค่าไม่ตรงกันยัง ambiguous ตาม regression test
+
+Live run นี้เป็น validation ของ coverage/scope ไม่ใช่ human-confirmed accuracy รอบใหม่ แม้ตัวเลขใน P02/P05 จะตรงกับค่าที่ user เคยยืนยันก็ตาม
 
 ## ยังไม่สรุป
 
-30/30 เป็น coverage ของ offline replay เท่านั้น ไม่ใช่ live validation รอบใหม่หรือ accuracy claim รอบใหม่ ตัวเลขที่ parse ได้ตรงกับ saved rendered row แต่ยังต้องตรวจ reference/accuracy แยกจาก coverage; compact notation ไม่ถูกนับเป็น exact
+Coverage ผ่าน 30/30 แล้ว แต่ยังไม่สรุป accuracy รวม: ต้องยืนยัน reference manifest ที่จับคู่ metric ถูกต้อง แล้วค่อย re-score; compact notation ไม่ถือเป็น exact pair
 
 ## งานต่อ
 
-- รัน final anonymous P01–P10 ใหม่หลัง freeze source hashes เว้นอย่างน้อย 20 วินาทีต่อ URL และหยุดตาม stop conditions เดิม
-- สร้าง/ตรวจ browser reference manifest จาก saved evidence ที่ metric association ถูกต้อง แล้ว re-score
+- ตรวจ/ยืนยัน browser reference manifest จาก saved evidence แล้ว re-score โดยแยก exact/approximate/fallback
 - อัปเดต #6/#8 ด้วย coverage และ accuracy แยกกัน; ยังไม่ปิด #2 จนตรวจ release criteria ของ #2 ครบ
 
-สรุป replay machine-readable อยู่ใน ignored `experiments/facebook_posts/runs/counter-scope-final-20261018T202456Z-coverage-replay.json`; raw HTML/body/screenshot ไม่ได้เพิ่มเข้า Git.
+สรุป offline replay อยู่ใน ignored `experiments/facebook_posts/runs/counter-scope-final-20261018T202456Z-coverage-replay.json`; live summary อยู่ใน ignored `experiments/facebook_posts/runs/counter-scope-final-20261018T212903Z-summary.json`; raw HTML/body/screenshot ไม่ได้เพิ่มเข้า Git.

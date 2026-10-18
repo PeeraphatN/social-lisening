@@ -28,7 +28,7 @@
 ## Final evidence (done) and closeout
 
 - [x] Collect P01–P10 once through one serialized anonymous queue
-- [ ] Score (done) and manually verify comparable exact pairs (ผู้ใช้ยืนยัน references 21 รายการ)
+- [ ] Re-score from metric-correct references; coordinator-derived references are not human-confirmed
 - [ ] Update #6; close เมื่อ references ผ่านและ tolerance ตัดสิน
 - [ ] Verify remaining #2 release criteria and update its status
 
@@ -44,4 +44,4 @@ See `tasks/coverage-first-plan.md`.
 - [x] Implement body extraction from unique story engagement row; keep page-wide scans and ambiguous rows rejected
 - [x] Replay saved snapshots offline: candidate coverage 30/30 (P07 Reaction/Share remain approximate); old 28/30 projection discarded
 - [ ] Re-score only after references are corrected and confirmed
-- [ ] Freeze source hashes, then run one sequential anonymous P01–P10 live validation
+- [x] Freeze source hashes, then run sequential anonymous P01–P10 live validation (second pass after fixing same-value duplicate controls); 10/10 HTTP 200, no challenge, 30/30 readable
