@@ -14,7 +14,7 @@ Improve readable Reaction/Comment/Share coverage while retaining the already val
 ## Decisions
 
 - Trust the existing validated requested/resolved identity chain and selected post message; do not require a separate header permalink to re-prove the same post.
-- Relax body extraction only within the unique selected target post article/engagement row. Continue excluding comment/reply controls, menus, recommendations, and neighboring posts.
+- Relax body extraction only within the unique selected target post engagement row, anchored to its post-level reaction summary and the already selected target message/identity. Do not require a `role=article` wrapper or header permalink when those are absent/non-canonical. Continue excluding comment/reply controls, menus, recommendations, and neighboring posts.
 - Preserve `null` when there is no unique selected article or the metric cannot be distinguished; never infer metrics from unscoped page-wide text.
 - Do not claim the coordinator-generated references are valid until label association is repaired and evidence is checked. Coverage and accuracy remain separate.
 - Keep anonymous-only, sequential live validation, stop conditions, and local ignored raw evidence.
@@ -22,7 +22,7 @@ Improve readable Reaction/Comment/Share coverage while retaining the already val
 ## Work order
 
 1. Rebuild an offline P01–P10 evidence table from the saved DOM and body snapshots. Bind each visible counter to its metric using its rendered engagement-row structure/accessible label, not flattened text regex. Mark layouts/metrics whose association still requires human review.
-2. Amend Issue #8 to replace route-header uniqueness with the existing selected-post identity chain plus unique target article/engagement row; retain no-page-wide-scan and unrelated-post exclusions.
+2. Amend Issue #8 to replace route-header uniqueness with the existing selected-post identity chain plus unique post-level engagement row; retain no-page-wide-scan and unrelated-post exclusions.
 3. TDD: add failing synthetic browser-inspection tests for route aliases with one validated selected article, adjacent share count followed by Like action, comments/replies containing numbers, and unrelated/duplicate articles. Then implement only the smallest selector/parser change.
 4. Replay saved snapshots offline and report per-metric coverage + evidence; do not use the prior 28/30 projection or old reference manifest.
 5. Have the user check any uncertain sample values against the saved screenshots/body evidence; repair manifest, then re-score.
@@ -32,7 +32,7 @@ Improve readable Reaction/Comment/Share coverage while retaining the already val
 ## Acceptance
 
 - No page-wide body text can become a counter.
-- A unique already-identified target article can supply its own rendered counters even when its header permalink is not a canonical match.
+- A unique already-identified target post engagement row can supply its rendered counters even when a `role=article` wrapper is absent or its header permalink is not a canonical match.
 - Neighboring articles, comments, replies, and action labels do not cross-contaminate metrics.
 - Every non-null counter includes source, raw text, scope and verification status; zeros require explicit evidence.
 - Tests prove both higher coverage on supported layouts and fail-closed behavior for ambiguity.
