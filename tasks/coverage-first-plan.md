@@ -16,7 +16,7 @@ Improve readable Reaction/Comment/Share coverage while retaining the already val
 - Trust the existing validated requested/resolved identity chain and selected post message; do not require a separate header permalink to re-prove the same post.
 - Relax body extraction only within the unique selected target post engagement row, anchored to its post-level reaction summary and the already selected target message/identity. Do not require a `role=article` wrapper or header permalink when those are absent/non-canonical. Continue excluding comment/reply controls, menus, recommendations, and neighboring posts.
 - Preserve `null` when there is no unique selected article or the metric cannot be distinguished; never infer metrics from unscoped page-wide text.
-- Do not claim the coordinator-generated references are valid until label association is repaired and evidence is checked. Coverage and accuracy remain separate.
+- Do not use coordinator-generated references until metric association is independently checked from saved browser evidence. Coverage and accuracy remain separate. Final review uses only body-visible labels; fallback-only metrics are left without an accuracy reference.
 - Keep anonymous-only, sequential live validation, stop conditions, and local ignored raw evidence.
 
 ## Work order
@@ -25,9 +25,9 @@ Improve readable Reaction/Comment/Share coverage while retaining the already val
 2. Amend Issue #8 to replace route-header uniqueness with the existing selected-post identity chain plus unique post-level engagement row; retain no-page-wide-scan and unrelated-post exclusions.
 3. TDD: add failing synthetic browser-inspection tests for route aliases with one validated selected article, adjacent share count followed by Like action, comments/replies containing numbers, and unrelated/duplicate articles. Then implement only the smallest selector/parser change.
 4. Replay saved snapshots offline and report per-metric coverage + evidence; do not use the prior 28/30 projection or old reference manifest.
-5. Have the user check any uncertain sample values against the saved screenshots/body evidence; repair manifest, then re-score.
-6. Run full offline suite and diff checks. Only after acceptance, run one sequential anonymous P01–P10 live validation with frozen hashes and ≥20 seconds between URLs.
-7. Update #6/#8 and README/report with measured coverage and limitations; do not close #2 unless its separate release criteria are verified.
+5. Review saved screenshots/body text, build a same-session reference manifest from 28 body-visible metrics, and score exact/approximate pairs. Keep P03 Share and P10 Comment out of accuracy pairs because they are fallback-only.
+6. Run full offline suite, freeze hashes, and complete sequential anonymous P01–P10 live validation with ≥20 seconds between URLs.
+7. Update and close #6/#8 with tested coverage/accuracy and limitations; leave #2 open until its separate release criteria are verified.
 
 ## Acceptance
 

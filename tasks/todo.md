@@ -28,9 +28,10 @@
 ## Final evidence (done) and closeout
 
 - [x] Collect P01–P10 once through one serialized anonymous queue
-- [ ] Re-score from metric-correct references; coordinator-derived references are not human-confirmed
-- [ ] Update #6; close เมื่อ references ผ่านและ tolerance ตัดสิน
-- [ ] Verify remaining #2 release criteria and update its status
+- [x] Build same-session references for 28 body-visible metrics; exclude P03/share and P10/comment fallback-only values
+- [x] Score: 25 exact pairs with zero error; 3 approximate intervals compatible; 2 metrics have no body reference
+- [x] Update and close #6/#8 with tested scope and limitations
+- [ ] #2 remains open for separate result-aggregation, timeout/error, and merge-review criteria
 
 ## Coverage recovery (new scope)
 
@@ -43,5 +44,5 @@ See `tasks/coverage-first-plan.md`.
 - [x] Add failing tests for route alias, metric association, comments/replies, and unrelated/duplicate rows
 - [x] Implement body extraction from unique story engagement row; keep page-wide scans and ambiguous rows rejected
 - [x] Replay saved snapshots offline: candidate coverage 30/30 (P07 Reaction/Share remain approximate); old 28/30 projection discarded
-- [ ] Re-score only after references are corrected and confirmed
+- [x] Re-score corrected 28-row same-session manifest; keep two fallback-only metrics out of accuracy pairs
 - [x] Freeze source hashes, then run sequential anonymous P01–P10 live validation (second pass after fixing same-value duplicate controls); 10/10 HTTP 200, no challenge, 30/30 readable

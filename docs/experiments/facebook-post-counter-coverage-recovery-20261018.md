@@ -52,15 +52,23 @@ Coverage จาก saved snapshot รอบนี้ได้ 30/30: Reaction 10
 - Source hashes ตรงก่อน/หลัง run: `probe_post.py` `97eec3c9…`, `inspect_browser.py` `eab416e0…`, `score_counters.py` `cb1c1b27…`; full hashes อยู่ใน ignored run summary
 - P10 ใน run ก่อนหน้า `counter-scope-final-20261018T212321Z` ให้ Share=null เพราะ DOM ซ้ำค่าจาก summary กับ control label แล้วถูกตีเป็น malformed แก้ให้รวมเฉพาะค่าที่เท่ากัน; ค่าไม่ตรงกันยัง ambiguous ตาม regression test
 
-Live run นี้เป็น validation ของ coverage/scope ไม่ใช่ human-confirmed accuracy รอบใหม่ แม้ตัวเลขใน P02/P05 จะตรงกับค่าที่ user เคยยืนยันก็ตาม
+## Accuracy replay จาก saved evidence
 
-## ยังไม่สรุป
+ตรวจ raw body ของ snapshot run เดียวกันเทียบกับ counter row ที่เลือก แล้วทำ reference เฉพาะ metric ที่มี body-visible label/value; ไม่ใช้ P03 Share=0 หรือ P10 Comment=0 เป็น reference เพราะสองค่านี้มาจาก embedded fallback และจะเป็นการเทียบกับแหล่งเดียวกับ collector
 
-Coverage ผ่าน 30/30 แล้ว แต่ยังไม่สรุป accuracy รวม: ต้องยืนยัน reference manifest ที่จับคู่ metric ถูกต้อง แล้วค่อย re-score; compact notation ไม่ถือเป็น exact pair
+- Reference 28/30 metrics: 25 exact pairs error=0; 3 approximate pairs compatible กับ rounding interval ทั้งหมด
+- แยกตาม metric: Reaction exact 8 + approximate 2; Comment exact 9 + missing reference 1; Share exact 8 + approximate 1 + missing reference 1
+- Missing references คือ P03 Share กับ P10 Comment; collector ยังมี identity-scoped embedded evidence และ explicit zero แต่ไม่นับเป็น independent accuracy pair
+- P02/P05 metric associations เคยได้รับการยืนยันจาก user; ค่า body-visible อื่นตรวจจาก saved body/screenshot โดย coordinator ใน session นี้ ผลเป็น same-session browser evidence ไม่ใช่ independent external ground truth
+- Accuracy score และ manifest อยู่ ignored ใน `runs/` เพื่อเก็บ raw evidence นอก Git
+
+## สรุป/ขอบเขต
+
+Coverage ผ่าน 30/30; same-session evidence ให้ 25 exact pairs ที่ error เป็นศูนย์ และ 3 approximate pairs ที่ interval-compatible ส่วน 2 fallback-only metrics ไม่ถูกใช้ยืนยัน accuracy ประเด็น scope และ scorer จึงผ่านตามชุดตัวอย่างนี้ แต่ไม่ได้อ้างความแม่นยำทั่วไปหรือรองรับทุก layout ของ Facebook
 
 ## งานต่อ
 
-- ตรวจ/ยืนยัน browser reference manifest จาก saved evidence แล้ว re-score โดยแยก exact/approximate/fallback
-- อัปเดต #6/#8 ด้วย coverage และ accuracy แยกกัน; ยังไม่ปิด #2 จนตรวจ release criteria ของ #2 ครบ
+- ปิด #6/#8 สำหรับ acceptance scope ของ experiment รอบนี้ โดยคงข้อจำกัด P05 preview-only และ 2 fallback-only metrics ไว้ในรายงาน
+- #2 ยังเปิด: ตรวจ release criteria อื่น เช่น result aggregation, timeout/error handling และ review ก่อน merge
 
 สรุป offline replay อยู่ใน ignored `experiments/facebook_posts/runs/counter-scope-final-20261018T202456Z-coverage-replay.json`; live summary อยู่ใน ignored `experiments/facebook_posts/runs/counter-scope-final-20261018T212903Z-summary.json`; raw HTML/body/screenshot ไม่ได้เพิ่มเข้า Git.
