@@ -36,6 +36,14 @@ class RepeatComparisonTests(unittest.TestCase):
         self.result["http_status"] = 429
         self.assertEqual(compare_post(self.result, self.reference), "blocked")
 
+    def test_unexpected_http_response_is_blocked(self):
+        self.result["http_status"] = 500
+        self.assertEqual(compare_post(self.result, self.reference), "blocked")
+
+    def test_captcha_challenge_is_blocked(self):
+        self.result.update(http_status=200, page_title="Security Check", body_preview="Complete the CAPTCHA")
+        self.assertEqual(compare_post(self.result, self.reference), "blocked")
+
     def test_repeated_success_updates_one_post_and_failure_preserves_latest_success(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -75,10 +83,11 @@ class RepeatComparisonTests(unittest.TestCase):
                     "comment_count": (batch - 1) * 1000 + int(round_number) * 10 + sample_number,
                     "share_count": (batch - 1) * 1000 + int(round_number) * 5 + sample_number,
                 }
-                if sample_id == "p03" and round_number == "3":
+                if sample_id == "p03" and (round_number == "3" or batch == 2):
                     result["share_count"] = None
                 if batch == 2 and sample_id == "p04":
-                    result["resolved_url"] = "https://www.facebook.com/"
+                    result.update(text=reference["text"] + " ",
+                                  body_preview=f"Example Page\n{reference['text']} ")
                 (runs / f"{run_id}-inspection.json").write_text(
                     json.dumps(result), encoding="utf-8")
                 return subprocess.CompletedProcess(command, 0, "", "")
@@ -139,10 +148,20 @@ class RepeatComparisonTests(unittest.TestCase):
             p02 = latest['{"kind":"post","owner_id":"1","post_id":"2"}']
             p03 = latest['{"kind":"post","owner_id":"1","post_id":"3"}']
             p04 = latest['{"kind":"post","owner_id":"1","post_id":"4"}']
+            second_output = next(path for path in runs.iterdir()
+                                 if path.is_dir() and path.name != "first-output")
+            with (second_output / "checks.csv").open(encoding="utf-8-sig", newline="") as file:
+                second_checks = list(csv.DictReader(file))
+            self.assertEqual(next(row for row in second_checks if row["sample_id"] == "P04")["status"],
+                             "source_changed")
+            self.assertEqual(next(row for row in second_checks if row["sample_id"] == "P05")["status"],
+                             "not_attempted")
+            self.assertEqual(json.loads((second_output / "summary.json").read_text(encoding="utf-8"))["status"],
+                             "stopped_after_safety_check")
             self.assertEqual(p01["reaction_count"], "201")
             self.assertEqual(p01["collected_at"], "2026-01-01T00:02:00Z")
             self.assertEqual(p02["sample_id"], "P02")
-            self.assertEqual(p02["reaction_count"], "1302")
+            self.assertEqual(p02["reaction_count"], "1102")
             self.assertEqual(p03["share_count"], "")
             self.assertEqual(p04["reaction_count"], "304")
 

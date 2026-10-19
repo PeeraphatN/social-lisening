@@ -3,6 +3,7 @@
 import csv
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import time
@@ -13,7 +14,10 @@ from probe_post import target_identity, validate_url
 
 
 def compare_post(result, reference):
-    if result.get("http_status") in (403, 429):
+    if result.get("http_status") != 200:
+        return "blocked"
+    page = " ".join(str(result.get(field) or "") for field in ("page_title", "body_preview"))
+    if re.search(r"\b(?:captcha|security check|challenge required)\b", page, re.IGNORECASE):
         return "blocked"
     if result.get("status") != "candidate_text_unverified" or not result.get("text"):
         return "text_unavailable"
@@ -95,6 +99,8 @@ def main():
                                reaction_text_raw=result.get("reaction_text_raw"),
                                comment_text_raw=result.get("comment_text_raw"),
                                share_text_raw=result.get("share_text_raw"))
+                    if row["status"] == "match" and not row["raw_hash_matches"]:
+                        row["status"] = "source_changed"
                     if row["status"] == "match":
                         identity = target_identity(result["resolved_url"])
                         if identity is None:
@@ -109,7 +115,7 @@ def main():
                                            "comment_count": result.get("comment_count"),
                                            "share_count": result.get("share_count"),
                                            "matched_round": number, "status": "reference_match"}
-                    stop = row["status"] == "blocked"
+                    stop = row["status"] in ("blocked", "text_changed", "source_changed")
                 except (subprocess.TimeoutExpired, RuntimeError, OSError, json.JSONDecodeError) as error:
                     row.update(status="request_failed", error_reason=str(error))
             round_result["samples"].append(row)
@@ -128,7 +134,7 @@ def main():
             save()
             print(json.dumps({"waiting_seconds": 600, "next_round": number + 1}), flush=True)
             time.sleep(600)
-    summary.update(status="stopped_after_block" if stop else "complete",
+    summary.update(status="stopped_after_safety_check" if stop else "complete",
                    passed=len(summary["rounds"]) == 3 and all(item["passed"] for item in summary["rounds"]),
                    finished_at=datetime.now(timezone.utc).isoformat())
     summary.pop("next_round_at", None)
