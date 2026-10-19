@@ -21,11 +21,11 @@ def compare_post(result, reference):
         return "blocked"
     if result.get("status") != "candidate_text_unverified" or not result.get("text"):
         return "text_unavailable"
-    if " ".join(result["text"].split()) != " ".join(reference["text"].split()):
-        return "text_changed"
     # ponytail: confirmation for these five known authors, not a general author extractor.
     if reference["publisher"] not in result.get("body_preview", "").split(result["text"][:40])[0]:
         return "publisher_not_confirmed"
+    if " ".join(result["text"].split()) != " ".join(reference["text"].split()):
+        return "text_changed"
     return "match"
 
 
@@ -99,13 +99,14 @@ def main():
                                reaction_text_raw=result.get("reaction_text_raw"),
                                comment_text_raw=result.get("comment_text_raw"),
                                share_text_raw=result.get("share_text_raw"))
-                    if row["status"] == "match" and not row["raw_hash_matches"]:
-                        row["status"] = "source_changed"
-                    if row["status"] == "match":
+                    if row["status"] in ("match", "text_changed"):
                         identity = target_identity(result["resolved_url"])
                         if identity is None:
                             row["status"] = "identity_unverified"
                         else:
+                            edited = row["status"] == "text_changed"
+                            if edited:
+                                row["status"] = "content_edited"
                             key = json.dumps(identity, sort_keys=True, separators=(",", ":"))
                             latest[key] = {"post_identity": key, "sample_id": ref["sample_id"],
                                            "publisher": ref["publisher"], "text": result["text"],
@@ -113,9 +114,9 @@ def main():
                                            "collected_at": result["collected_at"],
                                            "reaction_count": result.get("reaction_count"),
                                            "comment_count": result.get("comment_count"),
-                                           "share_count": result.get("share_count"),
-                                           "matched_round": number, "status": "reference_match"}
-                    stop = row["status"] in ("blocked", "text_changed", "source_changed")
+                                           "share_count": result.get("share_count"), "matched_round": number,
+                                           "status": "content_edited" if edited else "reference_match"}
+                    stop = row["status"] in ("blocked", "identity_unverified")
                 except (subprocess.TimeoutExpired, RuntimeError, OSError, json.JSONDecodeError) as error:
                     row.update(status="request_failed", error_reason=str(error))
             round_result["samples"].append(row)
