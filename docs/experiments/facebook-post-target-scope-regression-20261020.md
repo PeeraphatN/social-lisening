@@ -61,3 +61,12 @@ Snapshot เก่า P06/P10 ไม่มี header links ที่ extractor �
 - ก่อนแก้ tests ใหม่ล้ม 4 subcases; หลังแก้ full suite ผ่าน 143 tests และ `git diff --check` ผ่าน
 - Offline replay ทั้ง snapshot เก่าและ live capture ใหม่ได้ 30/30; P06=61/3/102, P10=7/0/6 โดยคง P08 Reaction=70 ตาม capture ใหม่ ไม่บังคับให้กลับเป็น 71 ของรอบเก่า
 - หลักฐานอยู่ใน ignored `runs/alias-fix-historical-replay.json` และ `runs/live-confirmation-20261019T192323Z-alias-fix-replay.json` ไม่แก้ทับ live artifacts เดิมและไม่ยิง Facebook เพิ่ม ผล 30/30 หลังแก้เป็น offline regression check เท่านั้น ยังไม่ใช่ live confirmation รอบใหม่
+
+## Live confirmation บน `f6ba59b`
+
+รัน `live-confirmation-20261019T195024Z` หลัง offline suite ผ่าน 143/143: P01–P10 HTTP 200 ครบ, ไม่มี challenge/request failure, คิว anonymous เดียว ระยะห่างเริ่ม request 22.4–37.2 วินาที และ source hashes คงเดิมก่อน/หลัง
+
+- Coverage 30/30; ทุก body row เป็น `target_scoped` และไม่มี metric ที่เป็น `unverified` P01–P05 normalized text hash ตรง tracked baseline
+- P06=61/3/102, P10=7/0/6; P08 Reaction=70 ตามหน้าใหม่ P02 Reaction และ P07 Reaction/Share ยังเป็น approximate ส่วน P03 Share=0/P10 Comment=0 ใช้ identity-scoped fallback ไม่ใช่ศูนย์ที่เดาจาก label หาย
+- รอบ live นี้ P06/P10 ไม่มี header links ที่ extractor เก็บได้ และ `header_alias_evidence` ว่าง จึงยืนยัน live coverage ของ source ปัจจุบัน แต่ไม่ได้ exercise alias-binding branch บน live DOM การยืนยัน alias branch ยังมาจาก browser regression tests และ offline replay ของ capture รอบ 25/30 ไม่ยิงซ้ำเพื่อบังคับรูปแบบหน้า
+- Summary, inspection JSON, HTML และภาพอยู่ใต้ ignored `runs/live-confirmation-20261019T195024Z-*` ผลนี้ไม่ใช่ independent accuracy measurement และยังไม่ได้ push/merge หรือปิด #2
