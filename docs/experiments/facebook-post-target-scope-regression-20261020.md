@@ -48,3 +48,16 @@ P02 Reaction=1100, P07 Reaction=39000/Share=1500 ยังคงเป็น app
 พบว่า summary ยังใช้ ancestor `innerText` ซึ่งรวม comment/menu/nested post ได้ และ loop ข้าม article ไปยืม summary จากโพสต์ข้างเคียงได้ เพิ่ม browser tests ให้ล้มก่อนแก้ แล้วจำกัดทั้ง summary และ controls ให้ใช้ ownership เดียวกัน: ตัด blocked subtrees, ไม่รับ controls ที่ครอบ comment/nested post และหยุดที่ขอบ article/dialog ก่อนถึง body
 
 แก้เฉพาะ collector เดิม ไม่เปลี่ยน target identity API หรือเพิ่ม extraction path ผล suite ผ่าน 140 tests รวม standalone P02/P05, unrelated/duplicate/conflicting rows, comment/reply/menu และ neighboring posts; saved replay ก่อน/หลังส่วนเพิ่มยังได้ 30/30 และตรง saved counts ทั้งหมด รายงานอยู่ใน ignored `runs/target-scope-seam-before.json` และ `runs/target-scope-seam-after.json` ไม่มี Facebook live request
+
+## Numeric target กับ opaque header — live พบเพิ่ม
+
+Live `live-confirmation-20261019T192323Z` บน `e9aa831` ได้ 25/30: HTTP 200 ครบ 10 URL ไม่มี challenge, source hashes คงเดิม และช่วงห่าง request อย่างน้อย 22.9 วินาที P01–P05 text hash ตรง baseline แต่ P06 หายสาม counters และ P10 หาย Reaction/Share รอบนี้จึงไม่ผ่าน live confirmation
+
+Snapshot เก่า P06/P10 ไม่มี header links ที่ extractor เก็บได้ ส่วน snapshot ใหม่มี opaque `pfbid` header ซึ่งไม่ตรงชนิด numeric target: P06 ถูกมองว่า malformed เพราะ query `story_fbid` ไม่ใช่ตัวเลข; P10 เป็น route identity คนละชนิด การเทียบโค้ดก่อน/หลังยืนยันว่าข้อจำกัดจาก `fd6a9eb` ยังเหลืออยู่ ไม่ใช่ parser หา counter ไม่เจอ
+
+แก้เฉพาะการยืนยัน DOM header: รับ alias เมื่อ embedded `Story` ผูก `permalink_url`, numeric `post_id`, feedback ID และ owning-profile ID สอดคล้องกับ target เดียวกัน เก็บ `header_alias_evidence` ไว้ตรวจย้อนกลับ ไม่มีการผ่อน `target_identity()`/`identities_match()` หรือ requested/resolved URL contract และไม่ถือว่า numeric กับ `pfbid` เท่ากันโดยอัตโนมัติ
+
+- Browser regression tests ใช้ IDs สมมติหลายชุด ไม่ผูกกับ P06/P10; ไม่มีหลักฐาน, ผิดโพสต์แม้เจ้าของเดียวกัน, feedback/owner ผิด, alias ขัดกันไม่ว่าลำดับใด, header อื่นที่ไม่มี proof และ identity query ซ้ำ/ขัดกันยังถูก reject
+- ก่อนแก้ tests ใหม่ล้ม 4 subcases; หลังแก้ full suite ผ่าน 143 tests และ `git diff --check` ผ่าน
+- Offline replay ทั้ง snapshot เก่าและ live capture ใหม่ได้ 30/30; P06=61/3/102, P10=7/0/6 โดยคง P08 Reaction=70 ตาม capture ใหม่ ไม่บังคับให้กลับเป็น 71 ของรอบเก่า
+- หลักฐานอยู่ใน ignored `runs/alias-fix-historical-replay.json` และ `runs/live-confirmation-20261019T192323Z-alias-fix-replay.json` ไม่แก้ทับ live artifacts เดิมและไม่ยิง Facebook เพิ่ม ผล 30/30 หลังแก้เป็น offline regression check เท่านั้น ยังไม่ใช่ live confirmation รอบใหม่

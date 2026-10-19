@@ -341,6 +341,72 @@ def identities_match(left, right):
     return left == right
 
 
+def _opaque_post_key(url):
+    """Ignore tracking parameters, not post/owner identity parameters."""
+    if not isinstance(url, str):
+        return None
+    try:
+        validate_url(url)
+    except ValueError:
+        return None
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    path = parsed.path.rstrip('/')
+    if {'fbid', 'multi_permalinks'} & query.keys():
+        return None
+    if re.fullmatch(r'/[^/]+/posts/pfbid[A-Za-z0-9]+', path):
+        return (path, None, None) if not {'id', 'story_fbid'} & query.keys() else None
+    ids, owners = query.get('story_fbid', []), query.get('id', [])
+    if (path in ('/story.php', '/permalink.php') and len(ids) == len(owners) == 1
+            and re.fullmatch(r'pfbid[A-Za-z0-9]+', ids[0]) and re.fullmatch(r'[0-9]+', owners[0])):
+        return path, ids[0], owners[0]
+    return None
+
+
+def _embedded_header_aliases(html, target):
+    """Bind opaque headers to numeric targets only through a consistent Story."""
+    if target is None or target['kind'] != 'post':
+        return {}
+    page = PageData()
+    page.feed(html)
+    bindings, permalinks = {}, {}
+    for script in page.scripts:
+        try:
+            pending = [json.loads(script)]
+        except json.JSONDecodeError:
+            continue
+        while pending:
+            node = pending.pop()
+            if isinstance(node, list):
+                pending.extend(node)
+            elif isinstance(node, dict):
+                pending.extend(node.values())
+                key = _opaque_post_key(node.get('permalink_url')) if node.get('__typename') == 'Story' else None
+                if key is None:
+                    continue
+                post_id, feedback = node.get('post_id'), node.get('feedback')
+                feedback = feedback if isinstance(feedback, dict) else {}
+                owner = feedback.get('owning_profile')
+                owner_id = owner.get('id') if isinstance(owner, dict) else None
+                valid = (isinstance(post_id, str) and re.fullmatch(r'[0-9]+', post_id)
+                         and isinstance(owner_id, str) and re.fullmatch(r'[0-9]+', owner_id)
+                         and feedback.get('id') == base64.b64encode(f'feedback:{post_id}'.encode()).decode()
+                         and (key[2] is None or key[2] == owner_id))
+                bindings.setdefault(key, set()).add((post_id, owner_id) if valid else None)
+                permalinks[key] = node['permalink_url']
+    aliases = {}
+    for key, identities in bindings.items():
+        if len(identities) != 1 or None in identities:
+            continue
+        post_id, owner_id = next(iter(identities))
+        identity = {'kind': 'post', 'post_id': post_id, 'owner_id': owner_id}
+        if identities_match(identity, target):
+            aliases[key] = {'identity': identity, 'permalink_url': permalinks[key],
+                            'feedback_id': base64.b64encode(f'feedback:{post_id}'.encode()).decode(),
+                            'source': 'embedded_story_permalink'}
+    return aliases
+
+
 def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
     """Capture one rendered snapshot; optionally return it for local evidence."""
     snapshot = page.evaluate(r"""() => {
@@ -480,12 +546,18 @@ def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None
     status = "missing" if consistent else "conflicting"
     candidates = []
     container_scopes = {}
+    aliases = _embedded_header_aliases(html, target)
+    used_aliases = {}
     for container in rendered_containers or []:
         identities = []
         malformed_header = False
         for link in container["permalinks"]:
             try:
-                identity = target_identity(link)
+                alias_key = _opaque_post_key(link)
+                alias = aliases.get(alias_key)
+                identity = alias['identity'] if alias else target_identity(link)
+                if alias:
+                    used_aliases[alias_key] = alias
             except ValueError:
                 continue
             if identity is not None:
@@ -547,6 +619,7 @@ def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None
 
     metrics = extract_social_metrics("")
     metrics["body_scope_status"] = status
+    metrics['header_alias_evidence'] = list(used_aliases.values())
     metrics["comment_counter_evidence"] = extract_comment_counter(html, resolved_url)
     metrics["share_counter_evidence"] = None
     metrics["reaction_counter_evidence"] = None

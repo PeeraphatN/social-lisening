@@ -1,5 +1,6 @@
 """Synthetic rendered pages; every request is fulfilled locally or aborted."""
 
+import base64
 import io
 import json
 import os
@@ -237,6 +238,69 @@ class TargetScopeTests(unittest.TestCase):
         content = content.replace(f'<a href="{URL}">Timestamp</a>', '')
         result = self.inspect(content)
         self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [61, 3, 102])
+
+    def test_numeric_target_accepts_only_embedded_story_proven_opaque_headers(self):
+        for post_id, owner_id in (('123', '456'), ('789', '654')):
+            target = f'https://www.facebook.com/story.php?story_fbid={post_id}&id={owner_id}'
+            for alias in (f'https://www.facebook.com/page/posts/pfbidSynthetic{post_id}',
+                          f'https://www.facebook.com/permalink.php?story_fbid=pfbidSynthetic{post_id}&id={owner_id}'):
+                story = {'__typename': 'Story', 'post_id': post_id, 'permalink_url': alias,
+                         'feedback': {'id': base64.b64encode(f'feedback:{post_id}'.encode()).decode(),
+                                      'owning_profile': {'id': owner_id}}}
+                content = ('<script type="application/json">' + json.dumps({'node_v2': story}) + '</script>'
+                           + article(alias + ('&' if '?' in alias else '?') + '__tn__=tracking'))
+                with self.subTest(target=target, alias=alias):
+                    result = self.inspect(content, url=target)
+                    self.assertEqual([result[f'{m}_count'] for m in ('reaction', 'comment', 'share')], [24, 1, 2])
+                    self.assertEqual(result['body_scope_status'], 'target_scoped')
+                    evidence = result['header_alias_evidence'][0]
+                    self.assertEqual(evidence['identity'], {'kind': 'post', 'post_id': post_id, 'owner_id': owner_id})
+                    self.assertEqual(evidence['source'], 'embedded_story_permalink')
+                    # A proven header cannot override the requested/resolved URL contract.
+                    rejected = self.inspect(content, url=target, requested_url=target.replace(post_id, '999'))
+                    self.assertIsNone(rejected['reaction_count'])
+
+    def test_opaque_headers_reject_missing_wrong_or_conflicting_identity_evidence(self):
+        for alias in ('https://www.facebook.com/page/posts/pfbidSynthetic',
+                      'https://www.facebook.com/permalink.php?story_fbid=pfbidSynthetic&id=456'):
+            story = {'__typename': 'Story', 'post_id': '123', 'permalink_url': alias,
+                     'feedback': {'id': base64.b64encode(b'feedback:123').decode(),
+                                  'owning_profile': {'id': '456'}}}
+            variants = {'absent': [], 'wrong_post': [dict(story, post_id='987')],
+                        'same_author_other_post': [dict(story, post_id='987', feedback={
+                            'id': base64.b64encode(b'feedback:987').decode(), 'owning_profile': {'id': '456'}})],
+                        'not_a_story': [dict(story, __typename='Comment')],
+                        'missing_feedback': [dict(story, feedback={})],
+                        'wrong_feedback': [dict(story, feedback={'id': 'wrong', 'owning_profile': {'id': '456'}})],
+                        'wrong_owner': [dict(story, feedback={'id': story['feedback']['id'], 'owning_profile': {'id': '999'}})]}
+            conflict = dict(story, post_id='987', feedback={
+                'id': base64.b64encode(b'feedback:987').decode(), 'owning_profile': {'id': '456'}})
+            variants.update(conflict=[story, conflict], conflict_reversed=[conflict, story])
+            for label, nodes in variants.items():
+                with self.subTest(alias=alias, variant=label):
+                    content = '<script type="application/json">' + json.dumps(nodes) + '</script>' + article(alias)
+                    result = self.inspect(content)
+                    for metric in ('reaction', 'comment', 'share'):
+                        self.assertIsNone(result[f'{metric}_count'])
+            # Proof for one alias cannot authorize a second, unrelated header.
+            content = '<script type="application/json">' + json.dumps(story) + '</script>' + article(alias)
+            content = content.replace('Timestamp</a>', 'Timestamp</a><a href="https://www.facebook.com/page/posts/pfbidOther">Other</a>')
+            self.assertIsNone(self.inspect(content)['reaction_count'])
+
+    def test_opaque_query_alias_rejects_duplicate_or_conflicting_identity_parameters(self):
+        alias = 'https://www.facebook.com/permalink.php?story_fbid=pfbidSynthetic&id=456'
+        story = {'__typename': 'Story', 'post_id': '123', 'permalink_url': alias,
+                 'feedback': {'id': base64.b64encode(b'feedback:123').decode(),
+                              'owning_profile': {'id': '456'}}}
+        for extra in ('&story_fbid=pfbidOther', '&id=999', '&fbid=987', '&multi_permalinks=987'):
+            with self.subTest(extra=extra):
+                content = '<script type="application/json">' + json.dumps(story) + '</script>' + article(alias + extra)
+                self.assertIsNone(self.inspect(content)['reaction_count'])
+        # Even an exact alias match is invalid when its owner contradicts the Story.
+        contradictory = dict(story, permalink_url=alias.replace('id=456', 'id=999'))
+        content = ('<script type="application/json">' + json.dumps(contradictory) + '</script>'
+                   + article(contradictory['permalink_url']))
+        self.assertIsNone(self.inspect(content)['reaction_count'])
 
     def test_group_story_row_accepts_same_post_with_header_alias(self):
         row = ('<div><span aria-label="See who reacted to this story"></span>'
