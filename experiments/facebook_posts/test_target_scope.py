@@ -92,14 +92,43 @@ class TargetScopeTests(unittest.TestCase):
         self.assertIsNone(result["reaction_count"])
         self.assertEqual(result["reaction_scope_status"], "ambiguous")
 
-    def test_identityless_standalone_story_toolbar_is_not_target_evidence(self):
+    def test_detached_story_toolbar_cannot_override_target_article(self):
         label = "See who reacted to this story"
         row = (f'<div><span role="toolbar" aria-label="{label}"></span>'
                '<div><span>All reactions</span><span>999</span></div>'
                '<div role="button">888</div><div role="button">777</div></div>')
-        result = self.inspect(row)
+        result = self.inspect(article(counters="") + row)
         for metric in ("reaction", "comment", "share"):
             self.assertIsNone(result[f"{metric}_count"])
+
+    def test_standalone_story_row_still_requires_unique_row_and_page_identity(self):
+        row = ('<div><span aria-label="See who reacted to this story"></span>'
+               '<div>All reactions</div><div>395</div>'
+               '<button>77</button><button>79</button></div>')
+        for content, requested in ((row + row, URL), (row, URL.replace('123', '987'))):
+            with self.subTest(content=content, requested=requested):
+                result = self.inspect(content, requested_url=requested)
+                for metric in ("reaction", "comment", "share"):
+                    self.assertIsNone(result[f"{metric}_count"])
+
+    def test_multiple_story_toolbars_in_one_article_are_ambiguous(self):
+        row = ('<div><span aria-label="See who reacted to this story"></span>'
+               '<div>All reactions</div><div>395</div>'
+               '<button>77</button><button>79</button></div>')
+        result = self.inspect(article(counters="", extra=row + row))
+        for metric in ("reaction", "comment", "share"):
+            self.assertIsNone(result[f"{metric}_count"])
+            self.assertEqual(result[f"{metric}_scope_status"], "ambiguous")
+
+    def test_story_toolbar_in_comment_menu_or_message_is_not_post_evidence(self):
+        row = ('<div><span aria-label="See who reacted to this story"></span>'
+               '<div>All reactions</div><div>999</div>'
+               '<button>888</button><button>777</button></div>')
+        for wrapper in ('role="comment"', 'role="menu"', 'data-ad-rendering-role="story_message"'):
+            with self.subTest(wrapper=wrapper):
+                result = self.inspect(article(counters="", extra=f'<div {wrapper}>{row}</div>'))
+                for metric in ("reaction", "comment", "share"):
+                    self.assertIsNone(result[f"{metric}_count"])
 
     def test_missing_duplicate_and_conflicting_containers_fail_closed(self):
         for content, status in ((article(URL.replace("123", "987")), "missing"),
@@ -145,16 +174,29 @@ class TargetScopeTests(unittest.TestCase):
         self.assertEqual(result["share_count"], 2)
         self.assertEqual(result["reaction_scope_status"], "target_scoped")
 
-    def test_story_toolbar_row_recovers_bare_thai_counters_in_target_article(self):
+    def test_p02_unique_story_row_does_not_require_article_or_message(self):
         label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
         row = (f'<div><span role="toolbar" aria-label="{label}"></span>'
                '<div><span>ความรู้สึกทั้งหมด</span><span>1.1 พัน</span></div>'
                '<div role="button">374</div><div role="button">353</div>'
                '<button>Like</button><button>Share</button></div>')
-        result = self.inspect(article(counters="", extra=row))
-        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")],
-                         [1100, 374, 353])
-        self.assertIn("1.1 พัน", result["reaction_text_raw"])
+        # P02's photo layout has no story_message and its comment articles do
+        # not own the engagement row. Keep this shape independent of article().
+        comments = '<div role="article"><div role="comment">Reply</div></div>'
+        for content in (row, f'<div role="complementary">{comments}{row}</div>', article(PHOTO_URL, counters="", extra=row)):
+            with self.subTest(content=content):
+                result = self.inspect(content, url=PHOTO_URL)
+                self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")],
+                                 [1100, 374, 353])
+                self.assertIn("1.1 พัน", result["reaction_text_raw"])
+                self.assertEqual(result["reaction_verification_status"], "approximate")
+
+    def test_post_dialog_keeps_unique_story_row(self):
+        row = ('<div><span aria-label="See who reacted to this story"></span>'
+               '<div>All reactions</div><div>24</div>'
+               '<div>4 comments</div><div>2 shares</div></div>')
+        result = self.inspect(f'<div role="dialog">{article(counters="", extra=row)}</div>')
+        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [24, 4, 2])
 
     def test_story_toolbar_uses_total_not_reaction_type_breakdown(self):
         label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
@@ -172,8 +214,50 @@ class TargetScopeTests(unittest.TestCase):
                '<div><span>All reactions</span><span>395</span></div>'
                '<div role="button" aria-label="77 comments">77</div>'
                '<div role="button" aria-label="79 shares">79</div></div>')
-        result = self.inspect(article(counters="", extra=row))
-        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [395, 77, 79])
+        for content in (row, article(GROUP_URL, counters="", extra=row)):
+            with self.subTest(content=content):
+                result = self.inspect(content, url=GROUP_URL)
+                self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [395, 77, 79])
+        text = 'Synthetic full post beyond the preview'
+        content = ('<meta property="og:description" content="Synthetic preview...">'
+                   f'<div data-ad-rendering-role="story_message">{text}</div>{row}')
+        result = self.inspect(content, url=GROUP_URL)
+        post = probe_post.extract_post(content, rendered_messages=[text],
+                                       body_scope_status=result['body_scope_status'])
+        self.assertEqual(post['status'], 'candidate_text_unverified')
+        self.assertEqual(post['text_source'], 'rendered_dom_story_message')
+        self.assertEqual(post['text'], text)
+
+    def test_story_row_allows_links_inside_post_message(self):
+        row = ('<div><span aria-label="See who reacted to this story"></span>'
+               '<div>All reactions</div><div>61</div>'
+               '<button>3</button><button>102</button></div>')
+        content = article(counters="", extra=row).replace(
+            'Synthetic post', '<a href="/story.php?story_fbid=987">Linked post</a>')
+        content = content.replace(f'<a href="{URL}">Timestamp</a>', '')
+        result = self.inspect(content)
+        self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [61, 3, 102])
+
+    def test_group_story_row_accepts_same_post_with_header_alias(self):
+        row = ('<div><span aria-label="See who reacted to this story"></span>'
+               '<div>All reactions</div><div>395</div>'
+               '<button>77</button><button>79</button></div>')
+        numeric = 'https://www.facebook.com/groups/456/posts/123/'
+        alias = 'https://www.facebook.com/groups/groupname/posts/123/'
+        for resolved, headers in ((numeric, (numeric, alias)), (alias, (numeric,))):
+            content = article(headers[0], counters="", extra=row)
+            content = content.replace('Timestamp</a>', 'Timestamp</a>' + ''.join(
+                f'<a href="{url}">Alias</a>' for url in headers[1:]))
+            with self.subTest(resolved=resolved):
+                result = self.inspect(content, url=resolved)
+                self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")], [395, 77, 79])
+                # A different post or two conflicting numeric group IDs cannot
+                # use the DOM alias exception; URL identity remains strict too.
+                for wrong in (alias.replace('/123/', '/987/'), numeric.replace('/456/', '/789/')):
+                    rejected = self.inspect(article(wrong, counters="", extra=row), url=numeric)
+                    self.assertIsNone(rejected['reaction_count'])
+                rejected = self.inspect(content, url=resolved, requested_url=alias if resolved == numeric else numeric)
+                self.assertIsNone(rejected['reaction_count'])
 
     def test_story_summary_does_not_mistake_reactions_for_comment_count(self):
         label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'

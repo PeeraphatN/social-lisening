@@ -371,7 +371,9 @@ def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
                         message_has_target_link: !!message?.querySelector('a[href]'), article_index};
             });
         const storyLabel = /(?:ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้|see who reacted to this story)/i;
-        const storyToolbars = [...document.querySelectorAll('[aria-label]')].filter(e => visible(e) && storyLabel.test(e.getAttribute('aria-label') || ''));
+        const storyToolbars = [...document.querySelectorAll('[aria-label]')].filter(e => visible(e)
+            && !e.closest('[role="comment"], [role="menu"], [data-ad-rendering-role="story_message"], [data-ad-rendering-role="story_attachments"]')
+            && storyLabel.test(e.getAttribute('aria-label') || ''));
         const storyRows = storyToolbars.map(toolbar => {
             const counters = [];
             let reactionSummary = null;
@@ -437,6 +439,7 @@ def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
             if (scoped) {
                 scoped.counters = counters;
                 scoped.story_row = true;
+                scoped.story_row_count = (scoped.story_row_count || 0) + 1;
                 return null;
             }
             return {permalinks:[], counters, message_count:0, message_has_target_link:false, story_row:true};
@@ -500,22 +503,31 @@ def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None
                 status = "ambiguous"
     rendered_containers = rendered_containers or []
     story_rows = [container for container in rendered_containers if container.get("story_row")]
+    story_row_count = sum(container.get("story_row_count", 1) for container in story_rows)
+    populated_articles = any(container["message_count"] for container in rendered_containers
+                             if "article_index" in container)
     target_story_rows = []
     for container in story_rows:
         identities, malformed_header = container_scopes[id(container)]
-        identity_matches = identities and all(identities_match(identity, target) for identity in identities)
-        identity_less_fallback = (not identities and "article_index" in container
-                                  and container["message_count"] == 1
-                                  and not container.get("message_has_target_link"))
-        if (container["message_count"] == 1 and not malformed_header
-                and (identity_matches or identity_less_fallback)):
+        # DOM group headers can use a slug where the resolved URL uses its
+        # numeric alias (or vice versa). Keep requested/resolved checks strict.
+        identity_matches = all(identities_match(identity, target) or (
+            target is not None and identity["kind"] == target["kind"] == "group"
+            and identity["post_id"] == target["post_id"]
+            and not (identity["group_id"].isdigit() and target["group_id"].isdigit()))
+            for identity in identities)
+        # A unique story row need not have an article/message (photo layout).
+        # A detached row cannot borrow scope from a different populated article.
+        owns_scope = (container["message_count"] == 1 if "article_index" in container
+                      else not populated_articles)
+        if owns_scope and not malformed_header and identity_matches:
             target_story_rows.append(container)
-    if consistent and len(story_rows) == len(target_story_rows) == 1:
+    if consistent and story_row_count == len(target_story_rows) == 1:
         candidates = target_story_rows
         status = "target_scoped"
     elif story_rows:
         candidates = []
-        status = ("ambiguous" if len(story_rows) != 1
+        status = ("ambiguous" if story_row_count != 1
                   or any(container["message_count"] != 1 for container in story_rows)
                   else "conflicting")
     elif len(candidates) > 1:

@@ -25,6 +25,14 @@ $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path (Get-Location) 'experiments\facebook_p
 python -m unittest discover -s experiments/facebook_posts -p 'test_*.py'
 ```
 
+Replay saved P01–P10 HTML แบบ offline (ต้องมี `*-page.html` และ `*-inspection.json` ใน `runs/`):
+
+```powershell
+.\experiments\facebook_posts\.venv\Scripts\python.exe experiments/facebook_posts/replay_target_scope.py
+```
+
+ปิด page scripts/service workers และ fulfill/abort ทุก request จึงไม่ยิง Facebook; exit code เป็น 1 ถ้า coverage ไม่ครบ 30/30 หรือ counts ต่างจาก inspection เดิม ใช้ `--revision fd6a9eb` เทียบก่อนแก้, `--revision 'fd6a9eb^'` เทียบ parent และ `--output` แยกรายงานแต่ละรอบ ค่าเดิมใช้ตรวจ regression บน snapshot เดียวกัน ไม่ใช่ independent accuracy reference รายละเอียดและผลก่อน/หลังอยู่ใน [target-scope regression](../../docs/experiments/facebook-post-target-scope-regression-20261020.md)
+
 `probe_post.py` ใช้ Python standard library เพื่อเปรียบเทียบผล HTTP กับ browser ส่วน `export_p01.py` ส่งออกผล P01 ที่มีอยู่แล้วโดยไม่ร้องขอหน้าเว็บซ้ำ ไม่มีการใช้งาน proxy หรือบริการ scraping เสียเงิน
 
 ## ความหมายและหลักฐานของ engagement counters
