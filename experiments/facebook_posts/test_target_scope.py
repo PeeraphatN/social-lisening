@@ -315,6 +315,45 @@ class TargetScopeTests(unittest.TestCase):
         self.assertIsNone(duplicate["reaction_count"])
         self.assertEqual(duplicate["reaction_scope_status"], "ambiguous")
 
+    def test_story_summary_cannot_read_comment_reply_menu_or_neighbor_text(self):
+        noise = '<div>999 comments</div><div>888 shares</div>'
+        for wrapper in ('role="comment"', 'role="menu"',
+                        'data-ad-rendering-role="story_attachments"', 'role="article"'):
+            row = ('<div><span aria-label="See who reacted to this story"></span>'
+                   '<div>All reactions</div><div>24</div>'
+                   f'<div {wrapper}>{noise}</div>'
+                   '<button aria-label="1 comment">1</button>'
+                   '<button aria-label="2 shares">2</button></div>')
+            for content in (row, article(counters="", extra=row)):
+                with self.subTest(wrapper=wrapper, content=content):
+                    result = self.inspect(content)
+                    self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")],
+                                     [24, 1, 2])
+
+    def test_story_toolbar_cannot_borrow_summary_from_neighboring_article(self):
+        toolbar = '<div><span aria-label="See who reacted to this story"></span></div>'
+        neighbor = article(URL.replace('123', '987'), counters="", extra=(
+            '<div>All reactions</div><div>999</div>'
+            '<div>888 comments</div><div>777 shares</div>'))
+        for content in (article(counters="", extra=toolbar) + neighbor,
+                        neighbor + article(counters="", extra=toolbar)):
+            with self.subTest(content=content):
+                result = self.inspect(content)
+                for metric in ("reaction", "comment", "share"):
+                    self.assertIsNone(result[f"{metric}_count"])
+
+    def test_story_controls_containing_comment_or_nested_post_are_ineligible(self):
+        for wrapper in ('role="comment"', 'role="article"', 'role="menu"'):
+            row = ('<div><span aria-label="See who reacted to this story"></span>'
+                   '<div>All reactions</div><div>24</div>'
+                   f'<button><div {wrapper}>999 comments</div></button>'
+                   '<button aria-label="1 comment">1</button>'
+                   '<button aria-label="2 shares">2</button></div>')
+            with self.subTest(wrapper=wrapper):
+                result = self.inspect(row)
+                self.assertEqual([result[f"{m}_count"] for m in ("reaction", "comment", "share")],
+                                 [24, 1, 2])
+
     def test_conflicting_story_toolbar_rows_fail_closed(self):
         label = 'ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้'
         row = lambda n: f'<div><button aria-label="{label}">{n}</button><button>77</button><button>79</button></div>'

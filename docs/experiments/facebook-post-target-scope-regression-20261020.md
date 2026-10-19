@@ -42,3 +42,9 @@ P02 Reaction=1100, P07 Reaction=39000/Share=1500 ยังคงเป็น app
 คำสั่ง `--revision fd6a9eb` ต้อง exit 1 เพื่อแสดง regression; parent และหลังแก้ exit 0 รายงานเก็บ source/HTML SHA-256, counts, scope/evidence, containers และ text status ใน ignored `runs/` ต้องมี raw saved HTML/inspection เดิมบนเครื่อง ไม่ commit raw evidence
 
 ผลนี้ตรวจ regression บน snapshot เดิม ไม่ใช่ accuracy reference อิสระหรือผล live ใหม่
+
+## ตรวจ seam เพิ่มตามข้อ 4
+
+พบว่า summary ยังใช้ ancestor `innerText` ซึ่งรวม comment/menu/nested post ได้ และ loop ข้าม article ไปยืม summary จากโพสต์ข้างเคียงได้ เพิ่ม browser tests ให้ล้มก่อนแก้ แล้วจำกัดทั้ง summary และ controls ให้ใช้ ownership เดียวกัน: ตัด blocked subtrees, ไม่รับ controls ที่ครอบ comment/nested post และหยุดที่ขอบ article/dialog ก่อนถึง body
+
+แก้เฉพาะ collector เดิม ไม่เปลี่ยน target identity API หรือเพิ่ม extraction path ผล suite ผ่าน 140 tests รวม standalone P02/P05, unrelated/duplicate/conflicting rows, comment/reply/menu และ neighboring posts; saved replay ก่อน/หลังส่วนเพิ่มยังได้ 30/30 และตรง saved counts ทั้งหมด รายงานอยู่ใน ignored `runs/target-scope-seam-before.json` และ `runs/target-scope-seam-after.json` ไม่มี Facebook live request

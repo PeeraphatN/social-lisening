@@ -371,15 +371,28 @@ def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
                         message_has_target_link: !!message?.querySelector('a[href]'), article_index};
             });
         const storyLabel = /(?:ดูว่าใครบ้างที่ได้แสดงความรู้สึกต่อเรื่องราวนี้|see who reacted to this story)/i;
+        const storyBlocked = '[role="comment"], [role="menu"], [data-ad-rendering-role="story_message"], [data-ad-rendering-role="story_attachments"]';
         const storyToolbars = [...document.querySelectorAll('[aria-label]')].filter(e => visible(e)
-            && !e.closest('[role="comment"], [role="menu"], [data-ad-rendering-role="story_message"], [data-ad-rendering-role="story_attachments"]')
+            && !e.closest(storyBlocked)
             && storyLabel.test(e.getAttribute('aria-label') || ''));
         const storyRows = storyToolbars.map(toolbar => {
             const counters = [];
             let reactionSummary = null;
             const countPattern = '[0-9][0-9.,]*[ \\t]*(?:พัน|หมื่น|แสน|ล้าน|K|M)?';
-            for (let node = toolbar.parentElement, depth = 0; node && depth < 8; node = node.parentElement, depth++) {
-                const text = node.innerText;
+            const postArticle = toolbar.closest('[role="article"]');
+            const owns = e => !e.closest(storyBlocked)
+                && e.closest('[role="article"]') === postArticle
+                && e.closest('[role="dialog"]') === toolbar.closest('[role="dialog"]');
+            // Read rendered text only from this row's owned subtree. Ancestor
+            // innerText also includes replies, menus and nested/neighbor posts.
+            const ownedText = node => {
+                if (!visible(node) || !owns(node)) return '';
+                if (!node.querySelector(storyBlocked + ', [role="article"], [role="dialog"]')) return node.innerText;
+                return [...node.childNodes].map(child => child.nodeType === Node.TEXT_NODE ? child.textContent
+                    : child instanceof HTMLElement ? ownedText(child) : '').join('\n');
+            };
+            for (let node = toolbar.parentElement, depth = 0; node && node !== document.body && owns(node) && depth < 8; node = node.parentElement, depth++) {
+                const text = ownedText(node);
                 const marker = /(?:All reactions|ความรู้สึกทั้งหมด)/i.exec(text);
                 if (!marker) continue;
                 const tail = text.slice(marker.index + marker[0].length);
@@ -396,19 +409,16 @@ def inspect_browser_metrics(page, requested_url, *, include_snapshot=False):
             }
             if (reactionSummary) counters.unshift(`All reactions ${reactionSummary}`);
 
-            const postArticle = toolbar.closest('[role="article"]');
-            const owns = e => !e.closest('[role="comment"], [role="menu"], [role="dialog"]')
-                && (postArticle ? e.closest('[role="article"]') === postArticle : !e.closest('[role="article"]'));
+            const counterControl = e => visible(e) && !toolbar.contains(e) && owns(e)
+                && !e.querySelector(storyBlocked + ', [role="article"], [role="dialog"]');
             let row = toolbar;
-            for (let depth = 0; depth < 8 && row.parentElement; depth++) {
+            for (let depth = 0; depth < 8 && row.parentElement && row.parentElement !== document.body && owns(row.parentElement); depth++) {
                 row = row.parentElement;
-                const controls = [...row.querySelectorAll('button,[role="button"]')].filter(e => visible(e)
-                    && !toolbar.contains(e) && owns(e));
-                if (/(?:All reactions|ความรู้สึกทั้งหมด)/i.test(row.innerText)
+                const controls = [...row.querySelectorAll('button,[role="button"]')].filter(counterControl);
+                if (/(?:All reactions|ความรู้สึกทั้งหมด)/i.test(ownedText(row))
                     && controls.some(e => /[0-9]/.test((e.getAttribute('aria-label') || '') + ' ' + e.innerText))) break;
             }
-            const controls = [...row.querySelectorAll('button,[role="button"]')].filter(e => visible(e)
-                && !toolbar.contains(e) && owns(e));
+            const controls = [...row.querySelectorAll('button,[role="button"]')].filter(counterControl);
             const counterNumber = raw => {
                 const match = String(raw).match(new RegExp(countPattern, 'i'));
                 return match ? match[0].replace(/\\s/g, '').toLowerCase() : null;
