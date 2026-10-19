@@ -33,6 +33,17 @@
 - [x] Update and close #6/#8 with tested scope and limitations
 - [ ] #2 remains open for separate result-aggregation, timeout/error, and merge-review criteria
 
+## Persistent repeat baseline (proposed)
+
+- [ ] Approve tracked hash-only P01–P05 baseline; raw post text remains under ignored `runs/`
+- [ ] Make repeat comparison use normalized text hashes and validate its manifest before requests
+- [ ] Add migration from legacy ignored `runs/references.json`
+- [ ] Document artifact retention/recovery and run the full offline suite
+- [ ] Define portable cross-worktree handoff format (manifest, source commit/hash, artifact hashes)
+- [ ] Add explicit export/import for selected ignored evidence; validate hashes and reject path traversal/stale source
+- [ ] Update agent dispatch instructions to pass tracked baseline ref or external bundle path + SHA-256
+- [ ] Test fresh worktree baseline use and offline replay after evidence-bundle import
+
 ## Coverage recovery (new scope)
 
 See `tasks/coverage-first-plan.md`.

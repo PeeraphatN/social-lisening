@@ -120,3 +120,50 @@ Fast path: about 2–3 hours. If Facebook DOM has no stable unique target contai
 | Parallel live runs trigger rate limits or compare different versions | Only the coordinator performs one final serialized run after merge |
 | Accuracy scorer validates parser against itself | Reference manifest records independently observed rendered value/screenshot |
 | Workers cannot see ignored snapshots in their worktrees | Give read-only absolute paths to the coordinator workspace; never commit raw evidence |
+
+## Proposed follow-up: persistent repeat baseline
+
+### Problem
+
+`run_repeats.py` requires `runs/references.json`, but `runs/` is intentionally ignored and can be cleaned after a live experiment. The runner then cannot resume even though the source and prior issue notes remain.
+
+### Decision to confirm
+
+Track a small `experiments/facebook_posts/repeat-baseline.json` outside `runs/`. It contains only sample ID, public URL, publisher, review time, and a **normalized text SHA-256**—never raw post text, HTML, screenshots, counters, or run output. Raw evidence remains ignored under `runs/`.
+
+### Tasks
+
+1. **Hash-only repeat comparison** — Change `run_repeats.py` to compare normalized text hashes, preserving whitespace-insensitive matching and `content_edited`; add focused tests for matching, changed text, and invalid manifests.
+2. **Tracked baseline and migration** — Add the five reviewed P01–P05 metadata/hash records; provide a one-shot local converter from an old ignored reference file, so recovery does not require retyping posts.
+3. **Artifact policy** — Document what is tracked, what remains local, and the actionable recovery procedure; reject a missing or malformed baseline before any Facebook request.
+
+### Acceptance
+
+- A fresh clone can start the repeat run without any ignored prerequisite.
+- A full-text change still produces `content_edited`; whitespace-only changes still match.
+- No raw Facebook post content or other live evidence is committed.
+
+### Cross-worktree handoff
+
+There are two levels of data sharing:
+
+1. **Default / safe:** the tracked hash-only baseline is available in every worktree after checkout. Agents receive the baseline version and commit SHA, not raw post text.
+2. **Explicit / evidence:** when a task genuinely needs raw text, HTML, screenshots, or inspection JSON, create a portable evidence bundle at a path outside the worktree and send the bundle path plus its SHA-256 to the receiving agent. Do not paste large evidence into prompts.
+
+Add a small export/import tool or command with these rules:
+
+- export a manifest containing schema version, source session/commit, relative artifact names, sizes, and SHA-256 hashes;
+- optionally include selected ignored evidence files, never the whole `runs/` directory by default;
+- import validates the manifest, hashes, file names, and path traversal before copying into the receiver's ignored `runs/` area;
+- reject stale/mismatched bundles instead of silently mixing evidence from different source hashes;
+- record provenance (`bundle_id`, creator, created time, source commit, source hash) in the receiving run;
+- use an explicit opt-in for raw Facebook content because it may contain personal data.
+
+The agent handoff contract should name either the tracked baseline commit or the external bundle absolute path and checksum. This makes the data reproducible across worktrees without pretending that ignored files are shared.
+
+### Cross-worktree acceptance
+
+- A fresh worktree can use the tracked baseline immediately.
+- A receiving agent can import a selected evidence bundle and reproduce the sender's offline result.
+- Wrong, incomplete, stale, or path-traversal bundles fail before analysis.
+- The default handoff contains hashes/metadata only; raw evidence is transferred only by explicit request.
