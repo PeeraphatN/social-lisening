@@ -41,7 +41,8 @@ with sync_playwright() as p:
         snapshot = metrics.pop("snapshot")
         body_text = snapshot["body_text"]
         html = snapshot["html"]
-        result = extract_post(html)
+        result = extract_post(html, rendered_messages=snapshot["messages"],
+                              body_scope_status=metrics["body_scope_status"])
         result.update(
             collected_at=snapshot["observed_at"],
             method="anonymous_browser_inspection",

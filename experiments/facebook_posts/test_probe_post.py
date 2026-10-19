@@ -10,6 +10,24 @@ class PostProbeTests(unittest.TestCase):
         self.assertIsNone(result["text"])
         self.assertEqual(result["preview_text"], "ข้อความ…")
 
+    def test_unique_target_scoped_rendered_message_fills_preview_only(self):
+        result = extract_post('<meta property="og:description" content="ข้อความ…">',
+                              rendered_messages=["ข้อความโพสต์เต็ม"],
+                              body_scope_status="target_scoped")
+        self.assertEqual(result["status"], "candidate_text_unverified")
+        self.assertEqual(result["text"], "ข้อความโพสต์เต็ม")
+        self.assertEqual(result["text_source"], "rendered_dom_story_message")
+
+    def test_rendered_message_requires_one_target_scoped_message(self):
+        for messages, scope in (([], "target_scoped"),
+                                (["โพสต์หนึ่ง", "โพสต์สอง"], "target_scoped"),
+                                (["โพสต์เดียว"], "ambiguous")):
+            with self.subTest(messages=messages, scope=scope):
+                result = extract_post('<meta property="og:description" content="ข้อความ…">',
+                                      rendered_messages=messages, body_scope_status=scope)
+                self.assertEqual(result["status"], "preview_only")
+                self.assertIsNone(result["text"])
+
     def test_matching_message_is_a_candidate_until_manually_verified(self):
         html = '''<meta property="og:description" content="ข้อความไทย...">
         <script type="application/json">{"data": [

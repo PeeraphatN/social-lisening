@@ -576,7 +576,7 @@ def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None
     return metrics
 
 
-def extract_post(html):
+def extract_post(html, *, rendered_messages=None, body_scope_status=None):
     page = PageData()
     page.feed(html)
     preview = page.metadata.get("og:description", page.metadata.get("description", ""))
@@ -601,15 +601,23 @@ def extract_post(html):
                 pending.extend(node)
     candidates = list(matches.values())
     status = "preview_only" if preview else "no_post_data"
+    text_source = None
     if candidates:
         status = "candidate_text_unverified" if len(candidates) == 1 else "ambiguous"
+        text_source = "embedded_json_message" if len(candidates) == 1 else None
+    elif (status == "preview_only" and body_scope_status == "target_scoped"
+          and isinstance(rendered_messages, list) and len(rendered_messages) == 1
+          and isinstance(rendered_messages[0], str) and rendered_messages[0].strip()):
+        candidates = rendered_messages
+        status = "candidate_text_unverified"
+        text_source = "rendered_dom_story_message"
     return {
         "status": status,
         "publisher_metadata": page.metadata.get("og:title"),
         "preview_text": preview or None,
         "text": candidates[0] if len(candidates) == 1 else None,
         "candidate_count": len(candidates),
-        "text_source": "embedded_json_message" if len(candidates) == 1 else None,
+        "text_source": text_source,
         "manual_match": None,
         "published_at": None,
     }
