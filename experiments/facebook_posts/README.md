@@ -48,7 +48,7 @@ python -m unittest discover -s experiments/facebook_posts -p 'test_*.py'
 
 ชุดนี้ตรวจข้อความ/hash ไม่ได้เป็นการตรวจ accuracy ของ engagement counters
 
-ต้องมี `runs/references.json` จากข้อมูลอ้างอิงครบ 5 ตัวอย่าง ตัวทดลองตรวจ hash ก่อนเริ่ม เปิดทีละโพสต์ รวม 3 รอบ เว้น 10 นาทีหลังจบแต่ละรอบ และหยุดเมื่อ HTTP ไม่ใช่ 200, พบ CAPTCHA/security check หรือยืนยัน post identity ไม่ได้ ถ้า identity และ publisher ยังยืนยันได้แต่ข้อความ/hash เปลี่ยน จะบันทึกเป็น `content_edited` และอัปเดตผลล่าสุด ไม่มีการล็อกอินหรือ retry เพื่อหลบการจำกัดคำขอ
+ตัวทดลองตรวจ normalized text hash ก่อนเริ่ม เปิดทีละโพสต์ รวม 3 รอบ เว้น 10 นาทีหลังจบแต่ละรอบ และหยุดเมื่อ HTTP ไม่ใช่ 200, พบ CAPTCHA/security check หรือยืนยัน post identity ไม่ได้ ถ้า identity และ publisher ยังยืนยันได้แต่ข้อความ/hash เปลี่ยน จะบันทึกเป็น `content_edited` และอัปเดตผลล่าสุด ไม่มีการล็อกอินหรือ retry เพื่อหลบการจำกัดคำขอ
 
 ใช้ `repeat-baseline.json` ที่ track ใน repo เป็นข้อมูลอ้างอิงแบบ hash-only ครบ 5 ตัวอย่าง จึงเริ่มจาก fresh worktree ได้โดยไม่ต้องมีไฟล์ใน `runs/` ก่อนรันซ้ำ baseline นี้เก็บเฉพาะ sample ID, URL, publisher และ normalized text SHA-256 ไม่เก็บข้อความโพสต์เต็ม
 
