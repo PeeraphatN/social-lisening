@@ -62,6 +62,13 @@ Keep important caveats, but write them plainly. Avoid legalistic/report wording,
 excessive defensive caveats, and long paragraphs that mix result, caveat, fix,
 and next step together.
 
+## Branching and handoff
+
+Before starting a feature, changing branches, or preparing a merge, read
+`docs/HANDOFF.md` for the experiment → feature → master agreement and current
+issue. Start from the issue linked there; experiment acceptance is separate
+from feature release acceptance.
+
 ## Agent skills
 
 ### Issue tracker

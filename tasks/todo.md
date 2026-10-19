@@ -31,20 +31,20 @@
 - [x] Build same-session references for 28 body-visible metrics; exclude P03/share and P10/comment fallback-only values
 - [x] Score: 25 exact pairs with zero error; 3 approximate intervals compatible; 2 metrics have no body reference
 - [x] Update and close #6/#8 with tested scope and limitations
-- [ ] #2 remains open for separate result-aggregation, timeout/error, and merge-review criteria
+- [x] Close #2 as validated experiment; feature entrypoint and release/merge acceptance continue in #9 (experiment stays off master)
 
-## Persistent repeat baseline (proposed)
+## Persistent repeat baseline (done)
 
 - [x] Approve tracked hash-only P01–P05 baseline; raw post text remains under ignored `runs/`
 - [x] Make repeat comparison use normalized text hashes and validate its manifest before requests
 - [x] Add migration from legacy ignored `runs/references.json`
-- [x] Document artifact retention/recovery and run the full offline suite (124/124)
+- [x] Document artifact retention/recovery and run the continuity checkpoint suite (124/124; final experiment suite 143/143)
 - [x] Define portable cross-worktree handoff format (manifest, source commit/hash, artifact hashes)
 - [x] Add explicit export/import for selected ignored evidence; validate hashes and reject path traversal/stale source
 - [x] Update agent dispatch instructions to pass tracked baseline ref or external bundle path + SHA-256
 - [x] Test fresh worktree baseline use and offline replay after evidence-bundle import
 
-## Coverage recovery (new scope)
+## Coverage recovery (done)
 
 See `tasks/coverage-first-plan.md`.
 
@@ -57,3 +57,11 @@ See `tasks/coverage-first-plan.md`.
 - [x] Replay saved snapshots offline: candidate coverage 30/30 (P07 Reaction/Share remain approximate); old 28/30 projection discarded
 - [x] Re-score corrected 28-row same-session manifest; keep two fallback-only metrics out of accuracy pairs
 - [x] Freeze source hashes, then run sequential anonymous P01–P10 live validation (second pass after fixing same-value duplicate controls); 10/10 HTTP 200, no challenge, 30/30 readable
+
+## Final experiment closeout
+
+- [x] Fix standalone story-row and numeric/opaque header identity regressions without weakening unrelated-post checks
+- [x] Run 143/143 offline tests and replay both historical and failed-live captures at 30/30
+- [x] Confirm frozen source `f6ba59b` live: `live-confirmation-20261019T195024Z`, HTTP 200 for all ten URLs, 30/30 counters, no challenge; record that alias binding was exercised offline, not by this live DOM
+- [x] Record experiment → feature → master flow in `docs/HANDOFF.md`; carry feature release criteria into #9, not into master as experiment code
+- [ ] Implement and review collector v1 in #9 (separate task; not started)

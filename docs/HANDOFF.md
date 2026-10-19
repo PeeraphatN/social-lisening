@@ -1,4 +1,4 @@
-# ส่งต่องาน — Social Listening Scraping — 18 ตุลาคม 2026
+# ส่งต่องาน — Social Listening Scraping — 20 ตุลาคม 2026
 
 ## ภาพงานที่ตกลงกัน
 
@@ -7,11 +7,20 @@ Social Listening แยกอยู่สองที่เก็บ:
 - **ฝั่ง scraping (repo นี้):** พัฒนา Facebook Collector เป็นเครื่องมือทั่วไป ใช้ฟรีและรันบนเครื่องได้ ไม่ผูกกับบริษัทหรือชุด keywords เฉพาะ
 - **ฝั่ง demo (อีกที่เก็บ):** งาน Apify, ข้อมูล 300 posts, การคัดกรองด้วย agent, sentiment และ Dashboard ไม่รวมเป็นผลงานของ repo นี้
 
-เป้าหมาย collector และเกณฑ์จบอยู่ใน [goal #3](https://github.com/PeeraphatN/social-lisening/issues/3) ตอนนี้ทำ **facebook-post-scraping** ใน [#2](https://github.com/PeeraphatN/social-lisening/issues/2) ลำดับต่อคือ [post search #4](https://github.com/PeeraphatN/social-lisening/issues/4) → [comment scraping #5](https://github.com/PeeraphatN/social-lisening/issues/5) → ตรวจเส้นทางรวม ส่วน [load test #7](https://github.com/PeeraphatN/social-lisening/issues/7) ยังพักไว้
+เป้าหมาย collector และเกณฑ์จบอยู่ใน [goal #3](https://github.com/PeeraphatN/social-lisening/issues/3) ปิด [#2](https://github.com/PeeraphatN/social-lisening/issues/2) ในฐานะ validated experiment ไม่ใช่ collector v1 งานยกระดับเป็น feature อยู่ใน [#9](https://github.com/PeeraphatN/social-lisening/issues/9) จากนั้นตามต่อ [post search #4](https://github.com/PeeraphatN/social-lisening/issues/4) → [comment scraping #5](https://github.com/PeeraphatN/social-lisening/issues/5) → ตรวจเส้นทางรวม ส่วน [load test #7](https://github.com/PeeraphatN/social-lisening/issues/7) ยังพักไว้
+
+## Experiment → feature → master
+
+- `master` เก็บงานพร้อมใช้ตามขอบเขตที่ประกาศ คง prototype และหลักฐานไว้บน `experiment/facebook-post-scraping-data`
+- เริ่ม `feat/facebook-collector-post` จาก `master` แล้วนำเฉพาะ logic/tests/docs ที่พิสูจน์แล้วมาใช้ ไม่ merge experiment branch ทั้งชุดเข้าฐานหลัก
+- ใช้ acceptance ของ #9 ตรวจ entrypoint จริงก่อน review/merge; ปิด experiment ไม่เท่ากับปล่อย feature และไม่ต้องรอ #4/#5 เพื่อปล่อยส่วนรับ URL
+- ยังไม่เพิ่ม `experiment/main` และพักการปรับ global skills/workflow ข้ามโปรเจกต์ไว้
+- เอกสารนี้อยู่บน experiment branch ถ้าเริ่มจาก master ให้เปิด #9 ซึ่งบันทึก flow และลิงก์ฐานทดลองไว้ด้วย
 
 ## อ่านหลักฐานก่อนทำต่อ
 
-- [Counter accuracy #6](https://github.com/PeeraphatN/social-lisening/issues/6): สถานะล่าสุด checklist และผลทดลองที่เปิดอ่านบน GitHub ได้
+- [Target-scope regression และ live confirmation ล่าสุด](experiments/facebook-post-target-scope-regression-20261020.md): สาเหตุ, fixes, replay และผลบน source `f6ba59b`
+- [Counter accuracy #6](https://github.com/PeeraphatN/social-lisening/issues/6) และ [scope spec #8](https://github.com/PeeraphatN/social-lisening/issues/8): ปิดผลทดลองแล้ว โดยจำกัด claim ตามหลักฐานแต่ละรอบ
 - [Same-version repeat](https://github.com/PeeraphatN/social-lisening/issues/6#issuecomment-6121295648) และ [ผลตรวจต้นทาง P03](https://github.com/PeeraphatN/social-lisening/issues/6#issuecomment-6121462499)
 - [รายงาน P03 และ counter repeat](experiments/facebook-post-counter-followup-20261012.md): diagnosis, identity chain, tests, hashes และตำแหน่งหลักฐาน local
 - [README ทดลอง](../experiments/facebook_posts/README.md): การติดตั้ง วิธีรัน และ semantics ของ counters
@@ -31,15 +40,20 @@ Raw evidence อยู่ใน ignored `experiments/facebook_posts/runs/` ไ�
 
 ## จุดที่หยุดไว้
 
-รองรับ opaque-pfbid counters แล้ว โดยตรวจ route → story → post → feedback identity และบังคับให้ Share `is_empty` สอดคล้องกับ count Live validation วันที่ 18 ต.ค. ได้ P03=24/4/0 และ P04=275/1/414; embedded positive counters ตรงกับ body ทุกช่องที่เทียบได้
+Source `f6ba59b` ผ่าน offline suite 143/143 และ replay ทั้ง snapshot เก่า/ชุดที่เคยได้ 25/30 กลับมา 30/30 Live `live-confirmation-20261019T195024Z` ได้ 30/30 counters, HTTP 200 ครบ P01–P10, ไม่มี challenge/request failure, คิวเดียวห่าง 22.4–37.2 วินาที และ frozen hashes คงเดิม P01–P05 normalized text hash ตรง tracked baseline
 
-Issue #6 ยังไม่ปิด งานที่เหลือคือ target scope ของค่าที่อ่านจาก body ทั้งหน้า และสรุป accuracy/tolerance จาก reference ที่มีเวลาและ surface ตรงกับ snapshot
+P05 ใช้ rendered-DOM fallback และยังมี extraction status `candidate_text_unverified` ไม่ใช่คำรับรองว่าข้อความทุกโพสต์ครบ P02 Reaction และ P07 Reaction/Share เป็น approximate; P03 Share=0/P10 Comment=0 มี identity-scoped fallback ส่วน live รอบสุดท้าย P06/P10 ไม่มี header links ที่ extractor เก็บได้ จึงไม่ได้ exercise alias-binding branch บน live DOM; branch นี้ยืนยันด้วย browser tests และ replay ของรอบที่เคยพัง Coverage ไม่ใช่ accuracy ทั่วไป
 
-ชุด offline tests ผ่าน 50/50 เมื่อตรวจล่าสุด หากเริ่มแก้โค้ด ให้รันใหม่จาก root:
+Latest store ข้าม run, successful-null/timeout preservation และ hash-only baseline ทำได้แล้วใน experiment runner แต่ยังผูก P01–P05 และ publisher/reference ที่รู้ล่วงหน้า งาน #9 ต้องนำพฤติกรรมเหล่านี้ไปทดสอบผ่าน entrypoint ของ feature จริง ไม่เพิ่มชั้น storage ใหม่โดยไม่มีเหตุจำเป็น
 
-```bash
-python -m unittest discover -s experiments/facebook_posts -p 'test_*.py'
+ก่อนเริ่มแก้โค้ด รันจาก repo root หลังติดตั้งตาม README; ใช้ project venv ที่มี Playwright:
+
+```powershell
+.\experiments\facebook_posts\.venv\Scripts\python.exe -m unittest discover -s experiments/facebook_posts -p 'test_*.py'
+.\experiments\facebook_posts\.venv\Scripts\python.exe experiments/facebook_posts/replay_target_scope.py
 ```
+
+Replay ต้องมี raw snapshots ใน ignored `runs/`; fresh checkout ใช้ tracked baseline/tests ได้ แต่ replay ต้องรับ selected evidence bundle ก่อน ไม่มี live request เพิ่มในงานปิด #2
 
 ## Timesheet และเสียงผู้เขียน
 
@@ -64,11 +78,11 @@ Timesheet ที่คุยกันเป็น draft ในบทสนทน
 
 ## Working tree และประวัติ branch
 
-ทำงานบน `experiment/facebook-post-scraping-data` ให้ตรวจ `git status --short --branch` และ `git worktree list` ก่อนแก้ไฟล์
+ตรวจ `git status --short --branch` และ `git worktree list` ก่อนแก้ไฟล์ งานเก็บผลทดลองคงอยู่บน `experiment/facebook-post-scraping-data`; งาน feature ถัดไปใช้ flow ด้านบน ไม่เริ่ม implement #9 หรือ #4/#5 จนกว่าจะได้รับคำขอ
 
 รักษางานที่มีอยู่ รวมถึง `AGENTS.md` และ `docs/github-writing-style.md` ตรวจ diff ก่อน stage; อย่ารวมไฟล์ตั้งค่า/เอกสารที่ไม่เกี่ยวข้องโดยอัตโนมัติ
 
-Master เคย revert งานทดลองออกแล้ว การ merge branch อย่างเดียวไม่คืนการเปลี่ยนแปลงที่ revert ดู [บันทึก branch ใน #2](https://github.com/PeeraphatN/social-lisening/issues/2#issuecomment-6044944137) สำหรับ handoff รุ่นก่อน ดู `git show 013dbdf:docs/HANDOFF.md` โดยอ่านเป็นประวัติ ไม่ใช้สถานะวันที่ 8 ต.ค. แทนผลล่าสุดใน #6
+Master เคย revert งานทดลองด้วย `3850559` การ merge experiment ตรง ๆ มี modify/delete conflicts และไฟล์ที่ไม่กลับมา ดู [บันทึก branch ใน #2](https://github.com/PeeraphatN/social-lisening/issues/2#issuecomment-6044944137) ให้ตรวจ final feature tree/diff กับ master และนำเฉพาะส่วนที่ตั้งใจส่งมอบ ไม่ force push หรือคืน revert ทั้งก้อนอัตโนมัติ Handoff รุ่นก่อนอ่านด้วย `git show 013dbdf:docs/HANDOFF.md` เป็นประวัติ ไม่ใช้แทนสถานะปัจจุบัน
 
 ## Suggested skills
 
@@ -82,4 +96,4 @@ Master เคย revert งานทดลองออกแล้ว การ 
 - **debug-mantra:** เมื่อเริ่ม diagnosis/debugging ให้ทำตามลำดับของ skill
 - **writing-for-agents:** เมื่อต้องแก้ handoff, skills หรือเอกสารคำสั่งของ agents
 
-เริ่ม session ถัดไปด้วยการอ่าน #6 และตรวจ working tree แล้วเลือกงานต่อจากคำขอใหม่ ไม่ถือว่ารายการงานค้างทุกข้อได้รับอนุญาตให้เริ่มแล้ว
+เริ่ม session ถัดไปด้วยการอ่าน #9, ข้อสรุป #2 และตรวจ working tree แล้วเลือกงานจากคำขอใหม่ รายการงานค้างไม่ใช่คำสั่งให้เริ่ม implement และงานนี้ไม่ได้ติดตั้งหรือแก้ skills ส่วนกลาง
