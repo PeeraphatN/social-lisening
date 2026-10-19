@@ -55,10 +55,12 @@ class RepeatComparisonTests(unittest.TestCase):
                 })
             (runs / "references.json").write_text(json.dumps(references), encoding="utf-8")
 
+            batch = 1
+
             def inspect(command, **_kwargs):
                 run_id = command[-1]
                 round_number, sample_id = run_id.rsplit("-r", 1)[1].split("-")
-                if sample_id == "p01" and round_number == "3":
+                if sample_id == "p01" and (batch == 2 or round_number == "3"):
                     raise subprocess.TimeoutExpired(command, timeout=60)
                 sample_number = int(sample_id[1:])
                 reference = references[sample_number - 1]
@@ -69,12 +71,14 @@ class RepeatComparisonTests(unittest.TestCase):
                     "http_status": 200,
                     "resolved_url": reference["fetch_url"],
                     "collected_at": f"2026-01-01T00:0{round_number}:00Z",
-                    "reaction_count": int(round_number) * 100 + sample_number,
-                    "comment_count": int(round_number) * 10 + sample_number,
-                    "share_count": int(round_number) * 5 + sample_number,
+                    "reaction_count": (batch - 1) * 1000 + int(round_number) * 100 + sample_number,
+                    "comment_count": (batch - 1) * 1000 + int(round_number) * 10 + sample_number,
+                    "share_count": (batch - 1) * 1000 + int(round_number) * 5 + sample_number,
                 }
                 if sample_id == "p03" and round_number == "3":
                     result["share_count"] = None
+                if batch == 2 and sample_id == "p04":
+                    result["resolved_url"] = "https://www.facebook.com/"
                 (runs / f"{run_id}-inspection.json").write_text(
                     json.dumps(result), encoding="utf-8")
                 return subprocess.CompletedProcess(command, 0, "", "")
@@ -105,6 +109,42 @@ class RepeatComparisonTests(unittest.TestCase):
             failed = next(row for row in checks
                           if row["sample_id"] == "P01" and row["round"] == "3")
             self.assertEqual(failed["status"], "request_failed")
+
+            latest_path = runs / "posts-latest.csv"
+            with latest_path.open(encoding="utf-8-sig", newline="") as file:
+                latest = list(csv.DictReader(file))
+            self.assertEqual(len(latest), 5)
+            self.assertEqual(
+                latest[0]["post_identity"],
+                '{"kind":"post","owner_id":"1","post_id":"1"}',
+            )
+
+            # Prove that restart matching uses identity, not the old sample label.
+            latest[1]["sample_id"] = "OLD"
+            with latest_path.open("w", encoding="utf-8-sig", newline="") as file:
+                writer = csv.DictWriter(file, fieldnames=list(latest[0]))
+                writer.writeheader()
+                writer.writerows(latest)
+            output.rename(root / "first-output")
+            batch = 2
+            with (patch.object(run_repeats, "__file__", str(root / "run_repeats.py")),
+                  patch.object(run_repeats.subprocess, "run", side_effect=inspect),
+                  patch.object(run_repeats.time, "sleep")):
+                run_repeats.main()
+
+            with latest_path.open(encoding="utf-8-sig", newline="") as file:
+                latest = {row["post_identity"]: row for row in csv.DictReader(file)}
+            self.assertEqual(len(latest), 5)
+            p01 = latest['{"kind":"post","owner_id":"1","post_id":"1"}']
+            p02 = latest['{"kind":"post","owner_id":"1","post_id":"2"}']
+            p03 = latest['{"kind":"post","owner_id":"1","post_id":"3"}']
+            p04 = latest['{"kind":"post","owner_id":"1","post_id":"4"}']
+            self.assertEqual(p01["reaction_count"], "201")
+            self.assertEqual(p01["collected_at"], "2026-01-01T00:02:00Z")
+            self.assertEqual(p02["sample_id"], "P02")
+            self.assertEqual(p02["reaction_count"], "1302")
+            self.assertEqual(p03["share_count"], "")
+            self.assertEqual(p04["reaction_count"], "304")
 
 
 if __name__ == "__main__":

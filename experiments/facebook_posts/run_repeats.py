@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from probe_post import validate_url
+from probe_post import target_identity, validate_url
 
 
 def compare_post(result, reference):
@@ -38,7 +38,11 @@ def main():
     (output / "references.json").write_text(json.dumps(references, ensure_ascii=False, indent=2), encoding="utf-8")
     summary = {"session_id": session_id, "status": "running", "rounds_planned": 3,
                "interval_seconds": 600, "sample_count": 5, "rounds": []}
+    latest_path = root / "runs" / "posts-latest.csv"
     latest = {}
+    if latest_path.exists():
+        with latest_path.open(encoding="utf-8-sig", newline="") as file:
+            latest = {row["post_identity"]: row for row in csv.DictReader(file)}
 
     def save():
         (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -49,10 +53,17 @@ def main():
                 writer.writeheader()
                 writer.writerows(rows)
         if latest:
+            fieldnames = list(next(iter(latest.values())))
             with (output / "posts.csv").open("w", encoding="utf-8-sig", newline="") as file:
-                writer = csv.DictWriter(file, fieldnames=list(next(iter(latest.values()))))
+                writer = csv.DictWriter(file, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(latest.values())
+            temporary = latest_path.with_suffix(".tmp")
+            with temporary.open("w", encoding="utf-8-sig", newline="") as file:
+                writer = csv.DictWriter(file, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(latest.values())
+            temporary.replace(latest_path)
 
     save()
     print(json.dumps({"session_id": session_id, "status": "started"}), flush=True)
@@ -85,13 +96,19 @@ def main():
                                comment_text_raw=result.get("comment_text_raw"),
                                share_text_raw=result.get("share_text_raw"))
                     if row["status"] == "match":
-                        latest[ref["sample_id"]] = {"sample_id": ref["sample_id"], "publisher": ref["publisher"],
-                                                   "text": result["text"], "input_url": ref["input_url"],
-                                                   "fetch_url": result["resolved_url"], "collected_at": result["collected_at"],
-                                                   "reaction_count": result.get("reaction_count"),
-                                                   "comment_count": result.get("comment_count"),
-                                                   "share_count": result.get("share_count"),
-                                                   "matched_round": number, "status": "reference_match"}
+                        identity = target_identity(result["resolved_url"])
+                        if identity is None:
+                            row["status"] = "identity_unverified"
+                        else:
+                            key = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+                            latest[key] = {"post_identity": key, "sample_id": ref["sample_id"],
+                                           "publisher": ref["publisher"], "text": result["text"],
+                                           "input_url": ref["input_url"], "fetch_url": result["resolved_url"],
+                                           "collected_at": result["collected_at"],
+                                           "reaction_count": result.get("reaction_count"),
+                                           "comment_count": result.get("comment_count"),
+                                           "share_count": result.get("share_count"),
+                                           "matched_round": number, "status": "reference_match"}
                     stop = row["status"] == "blocked"
                 except (subprocess.TimeoutExpired, RuntimeError, OSError, json.JSONDecodeError) as error:
                     row.update(status="request_failed", error_reason=str(error))
