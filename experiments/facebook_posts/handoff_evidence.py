@@ -20,7 +20,7 @@ def main():
     incoming = commands.add_parser("import")
     incoming.add_argument("--bundle", required=True)
     incoming.add_argument("--destination", required=True)
-    incoming.add_argument("--expected-source-commit")
+    incoming.add_argument("--expected-source-commit", required=True)
 
     args = parser.parse_args()
     if args.command == "export":

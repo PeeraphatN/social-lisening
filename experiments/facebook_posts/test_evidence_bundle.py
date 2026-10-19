@@ -28,6 +28,18 @@ class EvidenceBundleTests(unittest.TestCase):
             self.assertEqual(manifest["files"][0]["sha256"],
                              hashlib.sha256(source.read_bytes()).hexdigest())
 
+    def test_import_requires_expected_source_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "worktree"
+            root.mkdir()
+            source = root / "runs" / "inspection.json"
+            source.parent.mkdir()
+            source.write_text("evidence", encoding="utf-8")
+            bundle = Path(directory) / "handoff.zip"
+            export_bundle(root, bundle, "commit-a", [source.relative_to(root)])
+            with self.assertRaisesRegex(ValueError, "expected source commit"):
+                import_bundle(bundle, Path(directory) / "received")
+
     def test_import_rejects_wrong_source_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "worktree"
@@ -59,7 +71,7 @@ class EvidenceBundleTests(unittest.TestCase):
                         data += b"tampered"
                     changed.writestr(item, data)
             with self.assertRaisesRegex(ValueError, "sha256"):
-                import_bundle(tampered, Path(directory) / "received")
+                import_bundle(tampered, Path(directory) / "received", expected_source_commit="commit-a")
 
     def test_import_rejects_path_traversal(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -74,7 +86,7 @@ class EvidenceBundleTests(unittest.TestCase):
                 archive.writestr("manifest.json", json.dumps(manifest))
                 archive.writestr("../escape.txt", "x")
             with self.assertRaisesRegex(ValueError, "path"):
-                import_bundle(bundle, Path(directory) / "received")
+                import_bundle(bundle, Path(directory) / "received", expected_source_commit="commit-a")
 
 
 if __name__ == "__main__":

@@ -118,10 +118,11 @@ def _read_manifest(archive):
 
 def import_bundle(bundle, destination, expected_source_commit=None):
     destination = Path(destination).resolve()
+    if not isinstance(expected_source_commit, str) or not expected_source_commit.strip():
+        raise ValueError("expected source commit is required")
     with zipfile.ZipFile(bundle) as archive:
         manifest = _read_manifest(archive)
-        if (expected_source_commit is not None
-                and manifest["source_commit"] != expected_source_commit):
+        if manifest["source_commit"] != expected_source_commit:
             raise ValueError("bundle source commit does not match expected source commit")
         contents = {}
         for item in manifest["files"]:
