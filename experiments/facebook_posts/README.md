@@ -71,11 +71,11 @@ python experiments/facebook_posts/migrate_repeat_baseline.py experiments/faceboo
 ```powershell
 # จาก repo root; output ต้องอยู่นอก worktree
 python experiments/facebook_posts/handoff_evidence.py export `
-  --root . `
+  --root .\experiments\facebook_posts\runs `
   --output C:\temp\facebook-evidence.zip `
   --source-commit e50e39b `
   --source-session repeat-20261019T043334Z `
-  experiments\facebook_posts\runs\repeat-20261019T043334Z\checks.csv
+  repeat-20261019T043334Z\checks.csv
 
 python experiments/facebook_posts/handoff_evidence.py import `
   --bundle C:\temp\facebook-evidence.zip `

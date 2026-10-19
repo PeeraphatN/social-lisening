@@ -13,16 +13,19 @@ class EvidenceBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "worktree"
             root.mkdir()
-            source = root / "runs" / "session-inspection.json"
+            evidence_root = root / "runs"
+            source = evidence_root / "session-inspection.json"
             source.parent.mkdir()
             source.write_text('{"status":"match"}\n', encoding="utf-8")
             bundle = Path(directory) / "handoff.zip"
-            manifest = export_bundle(root, bundle, "e50e39b", [source.relative_to(root)])
+            manifest = export_bundle(evidence_root, bundle, "e50e39b",
+                                     [source.relative_to(evidence_root)])
             destination = Path(directory) / "received-runs"
             received = import_bundle(bundle, destination, expected_source_commit="e50e39b")
             self.assertEqual(received["bundle_id"], manifest["bundle_id"])
-            self.assertEqual((destination / "runs" / source.name).read_text(encoding="utf-8"),
+            self.assertEqual((destination / source.name).read_text(encoding="utf-8"),
                              source.read_text(encoding="utf-8"))
+            self.assertFalse((destination / "runs" / source.name).exists())
             provenance = destination / "handoff" / f"{manifest['bundle_id']}.json"
             self.assertEqual(json.loads(provenance.read_text(encoding="utf-8")), received)
             self.assertEqual(manifest["files"][0]["sha256"],

@@ -466,6 +466,7 @@ def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None
     consistent = target is not None and (identities_match(requested, target) or share_redirect)
     status = "missing" if consistent else "conflicting"
     candidates = []
+    container_scopes = {}
     for container in rendered_containers or []:
         identities = []
         malformed_header = False
@@ -482,6 +483,7 @@ def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None
                         or re.search(r"/(?:posts|permalink)/", route.path)
                         or {"story_fbid", "multi_permalinks", "fbid"} & parse_qs(route.query, keep_blank_values=True).keys()):
                     malformed_header = True
+        container_scopes[id(container)] = (identities, malformed_header)
         # Resolved/requested identity and the unique post-level message already
         # establish the target; rendered header links may use unrelated aliases.
         if (consistent and not identities and not malformed_header
@@ -496,12 +498,26 @@ def extract_browser_metrics(body_text, html, resolved_url, *, requested_url=None
                 status = "conflicting"
             elif container["message_count"] != 1:
                 status = "ambiguous"
-    story_rows = [container for container in rendered_containers or [] if container.get("story_row")]
-    if consistent and len(story_rows) == 1:
-        candidates = story_rows
+    rendered_containers = rendered_containers or []
+    story_rows = [container for container in rendered_containers if container.get("story_row")]
+    target_story_rows = []
+    for container in story_rows:
+        identities, malformed_header = container_scopes[id(container)]
+        identity_matches = identities and all(identities_match(identity, target) for identity in identities)
+        identity_less_fallback = (not identities and "article_index" in container
+                                  and container["message_count"] == 1
+                                  and not container.get("message_has_target_link"))
+        if (container["message_count"] == 1 and not malformed_header
+                and (identity_matches or identity_less_fallback)):
+            target_story_rows.append(container)
+    if consistent and len(story_rows) == len(target_story_rows) == 1:
+        candidates = target_story_rows
         status = "target_scoped"
-    elif story_rows and len(story_rows) != 1:
-        status = "ambiguous"
+    elif story_rows:
+        candidates = []
+        status = ("ambiguous" if len(story_rows) != 1
+                  or any(container["message_count"] != 1 for container in story_rows)
+                  else "conflicting")
     elif len(candidates) > 1:
         status = "ambiguous"
     elif len(candidates) == 1 and status == "missing":

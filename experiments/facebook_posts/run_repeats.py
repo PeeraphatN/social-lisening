@@ -8,9 +8,25 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
-from probe_post import target_identity
+from probe_post import identities_match, target_identity
 from repeat_baseline import load_baseline, text_sha256
+
+
+def validated_identity(reference, resolved_url):
+    """Return resolved identity only when it matches the requested target."""
+    requested_url = reference.get("fetch_url") or reference.get("input_url")
+    try:
+        requested = target_identity(requested_url)
+        resolved = target_identity(resolved_url)
+    except (TypeError, ValueError):
+        return None
+    if resolved is None:
+        return None
+    if re.fullmatch(r"/share/p/[A-Za-z0-9]+/?", urlparse(requested_url).path):
+        return resolved
+    return resolved if requested is not None and identities_match(requested, resolved) else None
 
 
 def compare_post(result, reference):
@@ -19,15 +35,16 @@ def compare_post(result, reference):
     page = " ".join(str(result.get(field) or "") for field in ("page_title", "body_preview"))
     if re.search(r"\b(?:captcha|security check|challenge required)\b", page, re.IGNORECASE):
         return "blocked"
-    if result.get("status") != "candidate_text_unverified" or not result.get("text"):
+    text = result.get("text")
+    if result.get("status") != "candidate_text_unverified" or not isinstance(text, str) or not text.strip():
         return "text_unavailable"
     # ponytail: confirmation for these five known authors, not a general author extractor.
-    if reference["publisher"] not in result.get("body_preview", "").split(result["text"][:40])[0]:
+    if reference["publisher"] not in result.get("body_preview", "").split(text[:40])[0]:
         return "publisher_not_confirmed"
     expected_hash = reference.get("review", {}).get("text_sha256")
     if expected_hash is None and isinstance(reference.get("text"), str):
         expected_hash = text_sha256(reference["text"])
-    if text_sha256(result["text"]) != expected_hash:
+    if text_sha256(text) != expected_hash:
         return "text_changed"
     return "match"
 
@@ -92,16 +109,19 @@ def main():
                     if execution.returncode:
                         raise RuntimeError(execution.stderr[-1000:])
                     result = json.loads((root / "runs" / f"{run_id}-inspection.json").read_text(encoding="utf-8"))
-                    row.update(status=compare_post(result, ref), characters=len(result.get("text") or ""),
+                    text = result.get("text")
+                    row.update(status=compare_post(result, ref),
+                               characters=len(text) if isinstance(text, str) else 0,
                                http_status=result.get("http_status"), collected_at=result.get("collected_at"),
-                               normalized_hash_matches=text_sha256(result.get("text") or "") == ref["review"]["text_sha256"],
+                               normalized_hash_matches=(isinstance(text, str) and bool(text.strip())
+                                                        and text_sha256(text) == ref["review"]["text_sha256"]),
                                text_sha256=result.get("text_sha256"), reaction_count=result.get("reaction_count"),
                                comment_count=result.get("comment_count"), share_count=result.get("share_count"),
                                reaction_text_raw=result.get("reaction_text_raw"),
                                comment_text_raw=result.get("comment_text_raw"),
                                share_text_raw=result.get("share_text_raw"))
                     if row["status"] in ("match", "text_changed"):
-                        identity = target_identity(result["resolved_url"])
+                        identity = validated_identity(ref, result.get("resolved_url"))
                         if identity is None:
                             row["status"] = "identity_unverified"
                         else:

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import run_repeats
 from repeat_baseline import migrate_legacy
-from run_repeats import compare_post
+from run_repeats import compare_post, validated_identity
 
 
 class RepeatComparisonTests(unittest.TestCase):
@@ -44,6 +44,78 @@ class RepeatComparisonTests(unittest.TestCase):
     def test_captcha_challenge_is_blocked(self):
         self.result.update(http_status=200, page_title="Security Check", body_preview="Complete the CAPTCHA")
         self.assertEqual(compare_post(self.result, self.reference), "blocked")
+
+    def test_requested_resolved_identity_mismatch_is_unverified(self):
+        reference = {
+            "input_url": "https://www.facebook.com/story.php?story_fbid=1&id=2",
+            "fetch_url": "https://www.facebook.com/story.php?story_fbid=1&id=2",
+        }
+        self.assertIsNone(validated_identity(
+            reference, "https://www.facebook.com/story.php?story_fbid=999&id=2"))
+
+    def test_share_url_accepts_a_valid_resolved_identity(self):
+        reference = {
+            "input_url": "https://www.facebook.com/share/p/abc123/",
+            "fetch_url": "https://www.facebook.com/share/p/abc123/",
+        }
+        self.assertEqual(
+            validated_identity(reference, "https://www.facebook.com/story.php?story_fbid=1&id=2"),
+            {"kind": "post", "post_id": "1", "owner_id": "2"},
+        )
+
+    def test_preview_only_does_not_crash_or_leave_summary_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs = root / "runs"
+            runs.mkdir()
+            references = []
+            for number in range(1, 6):
+                text = f"Public post P{number:02}"
+                references.append({
+                    "sample_id": f"P{number:02}",
+                    "publisher": "Example Page",
+                    "text": text,
+                    "input_url": f"https://www.facebook.com/story.php?story_fbid={number}&id=1",
+                    "fetch_url": f"https://www.facebook.com/story.php?story_fbid={number}&id=1",
+                    "review": {"reviewed_at": "2026-01-01T00:00:00Z",
+                                "evidence": f"runs/reference-p{number:02}.json"},
+                })
+            (root / "repeat-baseline.json").write_text(
+                json.dumps(migrate_legacy(references)), encoding="utf-8")
+
+            def inspect(command, **_kwargs):
+                run_id = command[-1]
+                round_number, sample_id = run_id.rsplit("-r", 1)[1].split("-")
+                sample_number = int(sample_id[1:])
+                reference = references[sample_number - 1]
+                if sample_id == "p01":
+                    result = {"status": "preview_only", "text": None,
+                              "body_preview": "Example Page\nPreview only", "http_status": 200}
+                else:
+                    result = {
+                        "status": "candidate_text_unverified",
+                        "text": reference["text"],
+                        "body_preview": f"Example Page\n{reference['text']}",
+                        "http_status": 200,
+                        "resolved_url": reference["fetch_url"],
+                        "collected_at": f"2026-01-01T00:0{round_number}:00Z",
+                    }
+                (runs / f"{run_id}-inspection.json").write_text(
+                    json.dumps(result), encoding="utf-8")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with (patch.object(run_repeats, "__file__", str(root / "run_repeats.py")),
+                  patch.object(run_repeats.subprocess, "run", side_effect=inspect),
+                  patch.object(run_repeats.time, "sleep")):
+                run_repeats.main()
+
+            output = next(path for path in runs.iterdir() if path.is_dir())
+            summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["status"], "complete")
+            self.assertTrue(all(item["status"] == "text_unavailable"
+                                for item in (round_result["samples"][0]
+                                             for round_result in summary["rounds"])))
+            self.assertFalse(summary["rounds"][0]["samples"][0]["normalized_hash_matches"])
 
     def test_repeated_success_updates_one_post_and_failure_preserves_latest_success(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -35,6 +35,7 @@ def _bundle_id(manifest):
 
 
 def export_bundle(root, output, source_commit, paths, source_session=None):
+    """Export paths relative to root for import into the corresponding root."""
     root = Path(root).resolve()
     output = Path(output).resolve()
     try:
@@ -117,6 +118,7 @@ def _read_manifest(archive):
 
 
 def import_bundle(bundle, destination, expected_source_commit=None):
+    """Import into the root represented by the bundle's relative file paths."""
     destination = Path(destination).resolve()
     if not isinstance(expected_source_commit, str) or not expected_source_commit.strip():
         raise ValueError("expected source commit is required")
