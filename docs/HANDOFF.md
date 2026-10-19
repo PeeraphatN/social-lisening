@@ -19,6 +19,16 @@ Social Listening แยกอยู่สองที่เก็บ:
 
 Raw evidence อยู่ใน ignored `experiments/facebook_posts/runs/` ไม่มากับ clone ใหม่ อย่าบอกว่า GitHub readers เปิดไฟล์ local เหล่านี้ได้ ให้ลิงก์ public summary comments แทน
 
+## Repeat baseline และ handoff ข้าม worktree
+
+`experiments/facebook_posts/repeat-baseline.json` เป็น tracked hash-only baseline สำหรับ P01–P05 ใช้ได้ทันทีใน fresh worktree และไม่มี raw post text ส่วน raw inspection JSON, HTML และภาพให้ส่งเฉพาะเมื่อจำเป็น:
+
+- ระบุ tracked baseline commit หรือ evidence bundle absolute path พร้อม SHA-256 ในงานที่ส่งให้ agent อื่น
+- สร้าง bundle ด้วย `experiments/facebook_posts/handoff_evidence.py export` โดยเลือกไฟล์ที่ต้องใช้เท่านั้น และเก็บ output นอก worktree
+- ฝั่งรับใช้คำสั่ง `import` พร้อม `--expected-source-commit`; ระบบตรวจ manifest, path, size และ SHA-256 ก่อนเขียนเข้า ignored `runs/`
+- ห้ามส่งทั้ง `runs/` โดยอัตโนมัติ และ raw Facebook content ต้อง opt-in
+- provenance ของ bundle ที่รับเข้าจะอยู่ใต้ `runs/handoff/`
+
 ## จุดที่หยุดไว้
 
 รองรับ opaque-pfbid counters แล้ว โดยตรวจ route → story → post → feedback identity และบังคับให้ Share `is_empty` สอดคล้องกับ count Live validation วันที่ 18 ต.ค. ได้ P03=24/4/0 และ P04=275/1/414; embedded positive counters ตรงกับ body ทุกช่องที่เทียบได้

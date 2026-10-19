@@ -50,8 +50,37 @@ python -m unittest discover -s experiments/facebook_posts -p 'test_*.py'
 
 ต้องมี `runs/references.json` จากข้อมูลอ้างอิงครบ 5 ตัวอย่าง ตัวทดลองตรวจ hash ก่อนเริ่ม เปิดทีละโพสต์ รวม 3 รอบ เว้น 10 นาทีหลังจบแต่ละรอบ และหยุดเมื่อ HTTP ไม่ใช่ 200, พบ CAPTCHA/security check หรือยืนยัน post identity ไม่ได้ ถ้า identity และ publisher ยังยืนยันได้แต่ข้อความ/hash เปลี่ยน จะบันทึกเป็น `content_edited` และอัปเดตผลล่าสุด ไม่มีการล็อกอินหรือ retry เพื่อหลบการจำกัดคำขอ
 
-โฟลเดอร์ `runs/` ไม่ได้ commit จึงไม่มีข้อมูลอ้างอิงนี้ใน clone ใหม่ ต้องนำข้อมูลที่ตรวจยืนยันแล้วมาไว้ก่อนรันซ้ำ ส่วนการรันลิงก์เดียวและ offline tests ใช้ได้หลังติดตั้ง ผลสรุปชุดที่เสร็จแล้วอยู่ใน `results/repeat-20261006T181111Z/` และรายละเอียดส่งต่องานอยู่ใน [docs/HANDOFF.md](../../docs/HANDOFF.md)
+ใช้ `repeat-baseline.json` ที่ track ใน repo เป็นข้อมูลอ้างอิงแบบ hash-only ครบ 5 ตัวอย่าง จึงเริ่มจาก fresh worktree ได้โดยไม่ต้องมีไฟล์ใน `runs/` ก่อนรันซ้ำ baseline นี้เก็บเฉพาะ sample ID, URL, publisher และ normalized text SHA-256 ไม่เก็บข้อความโพสต์เต็ม
+
+ถ้ามี legacy `runs/references.json` ที่ตรวจแล้ว ให้ migrate แบบ local ก่อน:
+
+```powershell
+python experiments/facebook_posts/migrate_repeat_baseline.py experiments/facebook_posts/runs/references.json experiments/facebook_posts/repeat-baseline.json
+```
+
+คำสั่ง migration จะไม่เขียนทับ output ที่มีอยู่ และ output ที่จะ commit ต้องผ่าน review ว่าไม่มี raw text ส่วนการรันลิงก์เดียวและ offline tests ใช้ได้หลังติดตั้ง ผลสรุปชุดที่เสร็จแล้วอยู่ใน `results/repeat-20261006T181111Z/` และรายละเอียดส่งต่องานอยู่ใน [docs/HANDOFF.md](../../docs/HANDOFF.md)
 
 ผลอยู่ในโฟลเดอร์ `runs/repeat-<เวลา UTC>/`: `summary.json`, `checks.csv`, `posts.csv` ที่รวมโพสต์ไม่ซ้ำ และสำเนาข้อมูลอ้างอิง โดยข้อมูลหน้าเว็บ/ภาพของแต่ละรอบอยู่ใน `runs/` ตาม run ID ชื่อผู้เขียนที่รู้แล้วถูกตรวจในส่วนหัวของหน้า ไม่อ้างว่าเป็นตัวดึงชื่อทั่วไป
 
 `runs/posts-latest.csv` เก็บผลสำเร็จล่าสุดข้ามการรันโดยใช้ post identity จาก resolved URL เป็น key ผลสำเร็จใหม่แทน counters และ `collected_at` ทั้งชุด (ค่าที่อ่านไม่ได้ยังเป็นช่องว่าง ไม่ใช่ศูนย์) ส่วน timeout, error, blocked หรือ identity ที่ตรวจไม่ได้จะไม่เขียนทับผลสำเร็จเดิม ไฟล์นี้เขียนผ่านไฟล์ชั่วคราวก่อน replace และยังอยู่ใต้ `runs/` จึงไม่ถูก commit
+
+## ส่งหลักฐานข้าม worktree
+
+ปกติส่งแค่ commit ที่มี `repeat-baseline.json` ก็พอ ถ้างานต้องใช้ raw inspection JSON, HTML หรือภาพ ให้เลือกไฟล์เป็น evidence bundle แยกนอก worktree ห้ามส่งทั้ง `runs/` โดยอัตโนมัติ:
+
+```powershell
+# จาก repo root; output ต้องอยู่นอก worktree
+python experiments/facebook_posts/handoff_evidence.py export `
+  --root . `
+  --output C:\temp\facebook-evidence.zip `
+  --source-commit e50e39b `
+  --source-session repeat-20261019T043334Z `
+  experiments\facebook_posts\runs\repeat-20261019T043334Z\checks.csv
+
+python experiments/facebook_posts/handoff_evidence.py import `
+  --bundle C:\temp\facebook-evidence.zip `
+  --destination experiments\facebook_posts\runs `
+  --expected-source-commit e50e39b
+```
+
+Bundle จะเก็บ manifest, source commit/session, path, size และ SHA-256 ฝั่งรับตรวจทั้งหมดก่อนเขียนไฟล์ พร้อมบันทึก provenance ใต้ `runs/handoff/` ถ้า source ไม่ตรง, hash ไม่ตรง, ไฟล์ไม่ครบ หรือ path ไม่ปลอดภัย ให้หยุดและไม่ import
