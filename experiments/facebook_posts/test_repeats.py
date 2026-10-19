@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import run_repeats
+from repeat_baseline import migrate_legacy
 from run_repeats import compare_post
 
 
@@ -59,9 +60,12 @@ class RepeatComparisonTests(unittest.TestCase):
                     "text": text,
                     "input_url": f"https://www.facebook.com/story.php?story_fbid={number}&id=1",
                     "fetch_url": f"https://www.facebook.com/story.php?story_fbid={number}&id=1",
-                    "review": {"text_sha256": hashlib.sha256(text.encode()).hexdigest()},
+                    "review": {"text_sha256": hashlib.sha256(text.encode()).hexdigest(),
+                                "reviewed_at": "2026-01-01T00:00:00Z",
+                                "evidence": f"runs/reference-{sample.lower()}.json"},
                 })
-            (runs / "references.json").write_text(json.dumps(references), encoding="utf-8")
+            (root / "repeat-baseline.json").write_text(
+                json.dumps(migrate_legacy(references)), encoding="utf-8")
 
             batch = 1
 

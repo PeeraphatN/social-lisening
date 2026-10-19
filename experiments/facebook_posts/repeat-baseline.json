@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "samples": [
+    {
+      "sample_id": "P01",
+      "publisher": "Piyalitt Ittichaiwong",
+      "input_url": "https://www.facebook.com/share/p/19TTvcsmZ8/",
+      "fetch_url": "https://www.facebook.com/share/p/19TTvcsmZ8/",
+      "review": {
+        "normalized_text_sha256": "622236edc521b3ff869794ab61906f271478f46a070802ec8a56955c6d5b25fe",
+        "reviewed_at": "2026-10-19T04:29:09.900Z",
+        "evidence": "runs/reference-rebuild-20261019T042907Z-p01-inspection.json",
+        "method": "anonymous_browser_rendered_content"
+      }
+    },
+    {
+      "sample_id": "P02",
+      "publisher": "SCIWAYS",
+      "input_url": "https://www.facebook.com/photo/?fbid=1649985453249994&set=a.194492012132686",
+      "fetch_url": "https://www.facebook.com/photo/?fbid=1649985453249994&set=a.194492012132686",
+      "review": {
+        "normalized_text_sha256": "a02f53d8ee73fae9a13ea87c33e9da2df84078a6afd7e271f84808c75e33e14e",
+        "reviewed_at": "2026-10-19T04:29:49.465Z",
+        "evidence": "runs/reference-rebuild-20261019T042907Z-p02-inspection.json",
+        "method": "anonymous_browser_rendered_content"
+      }
+    },
+    {
+      "sample_id": "P03",
+      "publisher": "หน่อย โซ่ตึง",
+      "input_url": "https://www.facebook.com/armymidecal/posts/pfbid0JxWfJCYeusVdhSEwNVrfYPdVsoEvFQNDYa4ndMkcNi2ALTT3NHuNMno4fkkzrYu5l",
+      "fetch_url": "https://www.facebook.com/armymidecal/posts/pfbid0JxWfJCYeusVdhSEwNVrfYPdVsoEvFQNDYa4ndMkcNi2ALTT3NHuNMno4fkkzrYu5l",
+      "review": {
+        "normalized_text_sha256": "6b057ff872c8dbbfa494e0176948f421b954b4fc8341401edbb47d47578874f2",
+        "reviewed_at": "2026-10-19T04:30:13.835Z",
+        "evidence": "runs/reference-rebuild-20261019T042907Z-p03-inspection.json",
+        "method": "anonymous_browser_rendered_content"
+      }
+    },
+    {
+      "sample_id": "P04",
+      "publisher": "QuantCorner",
+      "input_url": "https://www.facebook.com/quantcornerthailand/posts/pfbid036bewdSfgEUJvMagUQJ98BHXc2wDmgjwi1HsYb11eDKeBXeETckqhzQqMg8XmeeFNl",
+      "fetch_url": "https://www.facebook.com/quantcornerthailand/posts/pfbid036bewdSfgEUJvMagUQJ98BHXc2wDmgjwi1HsYb11eDKeBXeETckqhzQqMg8XmeeFNl",
+      "review": {
+        "normalized_text_sha256": "6ed0c80ccd55519aa3318c8c08e01a403dd7404edb7d11a7d4849feea91f4790",
+        "reviewed_at": "2026-10-19T04:30:38.072Z",
+        "evidence": "runs/reference-rebuild-20261019T042907Z-p04-inspection.json",
+        "method": "anonymous_browser_rendered_content"
+      }
+    },
+    {
+      "sample_id": "P05",
+      "publisher": "Worachai W. Aof",
+      "input_url": "https://www.facebook.com/groups/1108191221217612/?multi_permalinks=1455325143170883&hoisted_section_header_type=recently_seen",
+      "fetch_url": "https://www.facebook.com/groups/1108191221217612/?multi_permalinks=1455325143170883&hoisted_section_header_type=recently_seen",
+      "review": {
+        "normalized_text_sha256": "309c6e86bf7cd8cd2dd69294e429b7a8c8ecb31c951336e31988a714bd46b22a",
+        "reviewed_at": "2026-10-19T04:31:03.891Z",
+        "evidence": "runs/reference-rebuild-20261019T042907Z-p05-inspection.json",
+        "method": "anonymous_browser_rendered_content"
+      }
+    }
+  ]
+}

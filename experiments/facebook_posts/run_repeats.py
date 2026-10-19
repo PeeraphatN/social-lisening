@@ -1,7 +1,6 @@
 """Run the five reviewed public-post samples three times, without logging in."""
 
 import csv
-import hashlib
 import json
 import re
 import subprocess
@@ -10,7 +9,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from probe_post import target_identity, validate_url
+from probe_post import target_identity
+from repeat_baseline import load_baseline, text_sha256
 
 
 def compare_post(result, reference):
@@ -24,18 +24,19 @@ def compare_post(result, reference):
     # ponytail: confirmation for these five known authors, not a general author extractor.
     if reference["publisher"] not in result.get("body_preview", "").split(result["text"][:40])[0]:
         return "publisher_not_confirmed"
-    if " ".join(result["text"].split()) != " ".join(reference["text"].split()):
+    expected_hash = reference.get("review", {}).get("text_sha256")
+    if expected_hash is None and isinstance(reference.get("text"), str):
+        expected_hash = text_sha256(reference["text"])
+    if text_sha256(result["text"]) != expected_hash:
         return "text_changed"
     return "match"
 
 
 def main():
     root = Path(__file__).resolve().parent
-    references = json.loads((root / "runs" / "references.json").read_text(encoding="utf-8"))
-    assert [ref["sample_id"] for ref in references] == [f"P{i:02}" for i in range(1, 6)]
-    for ref in references:
-        assert hashlib.sha256(ref["text"].encode("utf-8")).hexdigest() == ref["review"]["text_sha256"]
-        validate_url(ref.get("fetch_url", ref["input_url"]))
+    references = load_baseline(root / "repeat-baseline.json")
+    if [ref["sample_id"] for ref in references] != [f"P{i:02}" for i in range(1, 6)]:
+        raise ValueError("repeat baseline must contain P01 through P05 in order")
     session_id = datetime.now(timezone.utc).strftime("repeat-%Y%m%dT%H%M%SZ")
     output = root / "runs" / session_id
     output.mkdir()
@@ -79,7 +80,7 @@ def main():
             run_id = f"{session_id}-r{number}-{ref['sample_id'].lower()}"
             row = {"round": number, "sample_id": ref["sample_id"], "status": "not_attempted",
                    "characters": 0, "http_status": None, "collected_at": None,
-                   "raw_hash_matches": False, "text_sha256": None, "reaction_count": None,
+                   "normalized_hash_matches": False, "text_sha256": None, "reaction_count": None,
                    "comment_count": None, "share_count": None, "reaction_text_raw": None,
                    "comment_text_raw": None, "share_text_raw": None, "error_reason": None,
                    "run_id": run_id}
@@ -93,7 +94,7 @@ def main():
                     result = json.loads((root / "runs" / f"{run_id}-inspection.json").read_text(encoding="utf-8"))
                     row.update(status=compare_post(result, ref), characters=len(result.get("text") or ""),
                                http_status=result.get("http_status"), collected_at=result.get("collected_at"),
-                               raw_hash_matches=hashlib.sha256((result.get("text") or "").encode("utf-8")).hexdigest() == ref["review"]["text_sha256"],
+                               normalized_hash_matches=text_sha256(result.get("text") or "") == ref["review"]["text_sha256"],
                                text_sha256=result.get("text_sha256"), reaction_count=result.get("reaction_count"),
                                comment_count=result.get("comment_count"), share_count=result.get("share_count"),
                                reaction_text_raw=result.get("reaction_text_raw"),
