@@ -1,7 +1,6 @@
-"""Contract-fixed collection status and latest-record rules."""
+"""Contract-fixed collection status and serial batch rules."""
 
 from copy import deepcopy
-import json
 
 
 EVIDENCED_QUALITIES = {"exact", "approximate"}
@@ -30,44 +29,6 @@ def capture_status(text: dict, counters: dict) -> str:
     ):
         return "collected"
     return "partial"
-
-
-def update_latest(existing: dict, outcome: dict) -> tuple[dict, bool]:
-    """Replace one latest record only for an approved eligible outcome."""
-    updated = deepcopy(existing)
-    identity = outcome.get("post_identity")
-    if (
-        outcome.get("duplicate_of") is not None
-        or outcome.get("status") not in {"collected", "partial"}
-        or not identity
-    ):
-        return updated, False
-
-    text_status = outcome.get("text", {}).get("status")
-    if text_status != "candidate_text_unverified":
-        return updated, False
-
-    counters = outcome.get("counters")
-    if (
-        not isinstance(counters, dict)
-        or set(counters) != COUNTER_KEYS
-        or not outcome.get("collected_at")
-    ):
-        return updated, False
-
-    identity_key = json.dumps(
-        identity,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    for key, record in updated.items():
-        if record.get("post_identity") == identity:
-            updated[key] = deepcopy(outcome)
-            return updated, True
-
-    updated[identity_key] = deepcopy(outcome)
-    return updated, True
 
 
 def empty_outcome(input_url: str, input_index: int, status: str, reason: str) -> dict:

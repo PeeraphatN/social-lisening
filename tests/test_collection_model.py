@@ -1,4 +1,4 @@
-"""Focused tests for contract-fixed collection and latest rules."""
+"""Focused tests for contract-fixed collection and serial batch rules."""
 
 import unittest
 
@@ -6,7 +6,6 @@ from facebook_collector.model import (
     BatchValidationError,
     capture_status,
     run_serial,
-    update_latest,
 )
 
 
@@ -67,156 +66,6 @@ class CaptureStatusTests(unittest.TestCase):
         )
 
         self.assertEqual(status, "partial")
-
-
-class LatestStoreTests(unittest.TestCase):
-    def test_candidate_partial_replaces_every_latest_capture_field_including_null(self):
-        identity = {"kind": "post", "post_id": "123", "owner_id": "456"}
-        existing = {
-            "post:456:123": {
-                "post_identity": identity,
-                "text": {"value": "old", "status": "candidate_text_unverified"},
-                "counters": {"reaction": counter(5, "exact")},
-                "collected_at": "2026-10-20T08:00:00Z",
-            }
-        }
-        outcome = {
-            "status": "partial",
-            "post_identity": identity,
-            "text": {"value": "new", "status": "candidate_text_unverified"},
-            "counters": {
-                "reaction": counter(None, "unverified"),
-                "comment": counter(0, "exact"),
-                "share": counter(2, "exact"),
-            },
-            "collected_at": "2026-10-20T08:00:12Z",
-        }
-
-        updated, latest_updated = update_latest(existing, outcome)
-
-        self.assertTrue(latest_updated)
-        self.assertEqual(list(updated.values()), [outcome])
-        self.assertIsNone(list(updated.values())[0]["counters"]["reaction"]["value"])
-
-    def test_preview_only_does_not_overwrite_latest(self):
-        identity = {"kind": "post", "post_id": "123", "owner_id": "456"}
-        existing = {
-            "post:456:123": {
-                "post_identity": identity,
-                "text": {"value": "old", "status": "candidate_text_unverified"},
-            }
-        }
-        outcome = {
-            "status": "partial",
-            "post_identity": identity,
-            "text": {"value": "preview", "status": "preview_only"},
-        }
-
-        updated, latest_updated = update_latest(existing, outcome)
-
-        self.assertFalse(latest_updated)
-        self.assertEqual(updated, existing)
-
-    def test_incomplete_latest_envelope_does_not_overwrite_latest(self):
-        identity = {"kind": "post", "post_id": "123", "owner_id": "456"}
-        existing = {
-            "post:456:123": {
-                "post_identity": identity,
-                "text": {"value": "old", "status": "candidate_text_unverified"},
-                "counters": {
-                    "reaction": counter(5, "exact"),
-                    "comment": counter(1, "exact"),
-                    "share": counter(2, "exact"),
-                },
-                "collected_at": "2026-10-20T08:00:00Z",
-            }
-        }
-        outcome = {
-            "status": "partial",
-            "post_identity": identity,
-            "text": {"value": "new", "status": "candidate_text_unverified"},
-            "counters": {
-                "reaction": counter(None, "unverified"),
-                "comment": counter(0, "exact"),
-            },
-        }
-
-        updated, latest_updated = update_latest(existing, outcome)
-
-        self.assertFalse(latest_updated)
-        self.assertEqual(updated, existing)
-
-    def test_new_latest_key_is_canonical_compact_sorted_identity_json(self):
-        identity = {"kind": "group", "post_id": "2", "group_id": "1"}
-        outcome = {
-            "status": "collected",
-            "post_identity": identity,
-            "collected_at": "2026-10-21T10:00:00Z",
-            "text": {"value": "new", "status": "candidate_text_unverified"},
-            "counters": {
-                "reaction": counter(1, "exact"),
-                "comment": counter(2, "exact"),
-                "share": counter(3, "exact"),
-            },
-            "duplicate_of": None,
-        }
-
-        updated, latest_updated = update_latest({}, outcome)
-
-        self.assertTrue(latest_updated)
-        self.assertEqual(
-            list(updated),
-            ['{"group_id":"1","kind":"group","post_id":"2"}'],
-        )
-
-    def test_duplicate_outcome_never_overwrites_latest(self):
-        identity = {"kind": "photo", "photo_id": "1"}
-        existing = {
-            '{"kind":"photo","photo_id":"1"}': {
-                "post_identity": identity,
-                "text": {"value": "old", "status": "candidate_text_unverified"},
-            }
-        }
-        duplicate = {
-            "status": "collected",
-            "post_identity": identity,
-            "collected_at": "2026-10-21T10:00:00Z",
-            "text": {"value": "duplicate", "status": "candidate_text_unverified"},
-            "counters": {
-                "reaction": counter(1, "exact"),
-                "comment": counter(2, "exact"),
-                "share": counter(3, "exact"),
-            },
-            "duplicate_of": 0,
-        }
-
-        updated, latest_updated = update_latest(existing, duplicate)
-
-        self.assertFalse(latest_updated)
-        self.assertEqual(updated, existing)
-
-    def test_failure_outcomes_do_not_overwrite_latest(self):
-        identity = {"kind": "post", "post_id": "123", "owner_id": "456"}
-        existing = {
-            "post:456:123": {
-                "post_identity": identity,
-                "text": {"value": "old", "status": "candidate_text_unverified"},
-            }
-        }
-
-        for status in ("timeout", "error", "blocked"):
-            with self.subTest(status=status):
-                outcome = {"status": status, "post_identity": identity}
-                updated, latest_updated = update_latest(existing, outcome)
-
-                self.assertFalse(latest_updated)
-                self.assertEqual(updated, existing)
-
-        unvalidated = {"status": "error", "post_identity": None}
-        updated, latest_updated = update_latest(existing, unvalidated)
-
-        self.assertFalse(latest_updated)
-        self.assertEqual(updated, existing)
 
 
 class SerialQueueTests(unittest.TestCase):

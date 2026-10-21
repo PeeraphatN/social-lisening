@@ -150,6 +150,23 @@ class StorageContractTests(unittest.TestCase):
         self.assertTrue(result["outcomes"][0]["latest_updated"])
         self.assertEqual(latest[key], {**replacement, "latest_updated": True})
 
+    def test_identity_keys_do_not_collide_when_components_contain_colons(self):
+        first = outcome({"kind": "post", "owner_id": "1:2", "post_id": "3"}, index=0)
+        second = outcome({"kind": "post", "owner_id": "1", "post_id": "2:3"}, index=1)
+        first["text"]["value"] = "first"
+        second["text"]["value"] = "second"
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory) / "output"
+            write_run(output_dir, [first, second], "completed", None, run_id="colon-identities")
+            latest = read_latest(output_dir / "posts-latest.csv")
+
+        self.assertEqual(len(latest), 2)
+        self.assertEqual(
+            {record["text"]["value"] for record in latest.values()},
+            {"first", "second"},
+        )
+
     def test_failure_preview_and_duplicate_never_replace_an_existing_latest_record(self):
         identity = {"kind": "photo", "photo_id": "789"}
         old = outcome(identity)
