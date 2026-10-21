@@ -24,6 +24,14 @@ EXPECTED_COUNTERS = {
     "comment": (25, "25 ความคิดเห็น", "exact"),
     "share": (3, "3 แชร์", "exact"),
 }
+EXPECTED_CSV_HEADER = (
+    "schema_version,input_index,duplicate_of,input_url,resolved_url,identity_kind,"
+    "identity_post_id,identity_owner_id,identity_photo_id,identity_group_id,identity_route,"
+    "attempted_at,collected_at,status,reason,text_value,text_status,text_source,"
+    "reaction_value,reaction_raw,reaction_quality,reaction_source,comment_value,comment_raw,"
+    "comment_quality,comment_source,share_value,share_raw,share_quality,share_source,"
+    "latest_updated"
+)
 
 
 def assert_utc_rfc3339(test_case: unittest.TestCase, value: object) -> None:
@@ -84,13 +92,15 @@ class CollectWorkflowE2ETests(unittest.TestCase):
             run_directory = run_directories[0]
 
             results = json.loads((run_directory / "results.json").read_text(encoding="utf-8"))
-            self.assertIsInstance(results["schema_version"], str)
-            self.assertTrue(results["schema_version"])
+            self.assertEqual(results["schema_version"], "1")
+            self.assertEqual(results["run_id"], run_directory.name)
             self.assertEqual(results["run_status"], "completed")
             self.assertIsNone(results["stop_reason"])
             self.assertEqual(len(results["outcomes"]), 1)
 
             outcome = results["outcomes"][0]
+            self.assertEqual(outcome["input_index"], 0)
+            self.assertIsNone(outcome["duplicate_of"])
             self.assertEqual(outcome["status"], "collected")
             self.assertIsNone(outcome["reason"])
             self.assertEqual(outcome["input_url"], SYNTHETIC_URL)
@@ -115,6 +125,8 @@ class CollectWorkflowE2ETests(unittest.TestCase):
 
             posts_csv = (run_directory / "posts.csv").read_text(encoding="utf-8")
             latest_csv = (output_dir / "posts-latest.csv").read_text(encoding="utf-8")
+            self.assertEqual(posts_csv.splitlines()[0], EXPECTED_CSV_HEADER)
+            self.assertEqual(latest_csv.splitlines()[0], EXPECTED_CSV_HEADER)
             self.assertIn(EXPECTED_TEXT, posts_csv)
             self.assertIn(EXPECTED_TEXT, latest_csv)
             self.assertIn("1.2K", posts_csv)

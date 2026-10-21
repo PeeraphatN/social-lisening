@@ -30,11 +30,11 @@ slash), with no credentials or custom port.
 This first slice accepts exactly one `--url`, which must exactly match the fixture's
 `submitted_url`. Repeated `--url`, `--input-file`, public exhaustive URL support,
 browser transport, and live transport remain pending and fail closed. The expected `results.json` envelope is
-`schema_version="1"` (a string), `run_status="completed"`, `stop_reason=null`, and
-one outcome using the approved per-outcome fields. The test checks semantic UTF-8
-content only. The focused seam tests validate the current exact CSV header, canonical
-JSON identity keys for latest records, malformed-latest preservation, and atomic
-latest replacement.
+`schema_version="1"` (a string), a `run_id` matching the run directory,
+`run_status="completed"`, `stop_reason=null`, and one outcome using the approved
+per-outcome fields. The test checks the exact v1 CSV header and semantic UTF-8
+content. Focused storage tests cover canonical identity keys, malformed-latest
+preservation, atomic replacement, and write-failure cleanup.
 
 No live traffic is allowed. The test also points both HTTP proxy environment variables
 at `http://127.0.0.1:9`, clears `NO_PROXY`, and sets the network-disabled switch so a

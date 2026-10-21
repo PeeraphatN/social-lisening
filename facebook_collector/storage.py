@@ -47,6 +47,12 @@ CSV_FIELDS = (
 COUNTER_NAMES = ("reaction", "comment", "share")
 LATEST_STATUSES = {"collected", "partial"}
 COUNTER_QUALITIES = {"exact", "approximate", "unverified", "missing"}
+IDENTITY_FIELDS_BY_KIND = {
+    "post": ("post_id", "owner_id"),
+    "photo": ("photo_id",),
+    "pfbid": ("route",),
+    "group": ("group_id", "post_id"),
+}
 
 
 def _identity_key(identity: dict) -> str:
@@ -119,13 +125,7 @@ def _valid_identity(identity: object) -> bool:
     if not isinstance(identity, dict):
         return False
     kind = identity.get("kind")
-    required_by_kind = {
-        "post": ("post_id", "owner_id"),
-        "photo": ("photo_id",),
-        "pfbid": ("route",),
-        "group": ("group_id", "post_id"),
-    }
-    required = required_by_kind.get(kind)
+    required = IDENTITY_FIELDS_BY_KIND.get(kind)
     return required is not None and all(
         isinstance(identity.get(name), str) and identity[name] for name in required
     )
@@ -172,13 +172,7 @@ def _identity_from_row(row: dict) -> dict:
         "group_id": row["identity_group_id"],
         "route": row["identity_route"],
     }
-    required_by_kind = {
-        "post": ("post_id", "owner_id"),
-        "photo": ("photo_id",),
-        "pfbid": ("route",),
-        "group": ("group_id", "post_id"),
-    }
-    required = required_by_kind.get(kind)
+    required = IDENTITY_FIELDS_BY_KIND.get(kind)
     if required is None:
         raise ValueError("malformed posts-latest.csv: identity_kind")
     if any(values[name] != "" for name in set(values) - set(required)):

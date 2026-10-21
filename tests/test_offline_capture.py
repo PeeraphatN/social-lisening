@@ -12,8 +12,7 @@ from facebook_collector.offline import (
     build_outcome,
     load_offline_capture,
     offline_enabled,
-    read_latest_rows,
-    write_latest,
+    write_offline_run,
 )
 
 
@@ -131,81 +130,24 @@ class OfflineCaptureValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(OfflineCaptureError, "input URL"):
             build_outcome("https://www.facebook.com/900000007654321/posts/900000001234568/", capture)
 
+    def test_offline_run_write_failure_leaves_no_result_files(self):
+        capture = load_offline_capture(self.write_fixture(valid_fixture()))
+        outcome = build_outcome(capture["submitted_url"], capture)
+        real_write_text = Path.write_text
 
-class LatestCsvTests(unittest.TestCase):
-    def outcome(self, post_id: str, text: str) -> dict:
-        return {
-            "input_url": f"https://www.facebook.com/owner/posts/{post_id}/",
-            "resolved_url": f"https://www.facebook.com/owner/posts/{post_id}/",
-            "post_identity": {"kind": "post", "post_id": post_id, "owner_id": "owner"},
-            "attempted_at": "2026-10-21T04:30:15Z",
-            "collected_at": "2026-10-21T04:30:15Z",
-            "status": "collected",
-            "reason": None,
-            "text": {"value": text, "status": "candidate_text_unverified", "source": "source"},
-            "counters": {
-                name: {"value": value, "raw": str(value), "quality": "exact", "source": "source"}
-                for name, value in (("reaction", 1), ("comment", 2), ("share", 3))
-            },
-            "latest_updated": True,
-        }
+        def fail_results(path, *args, **kwargs):
+            if path.name == "results.json":
+                raise OSError("synthetic results failure")
+            return real_write_text(path, *args, **kwargs)
 
-    def test_latest_replaces_matching_identity_and_preserves_unrelated_records(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "posts-latest.csv"
-            write_latest(path, self.outcome("one", "old"))
-            write_latest(path, self.outcome("two", "other"))
-            write_latest(path, self.outcome("one", "new"))
+            output_dir = Path(directory) / "output"
+            with patch.object(Path, "write_text", autospec=True, side_effect=fail_results):
+                with self.assertRaisesRegex(OfflineCaptureError, "write offline run"):
+                    write_offline_run(output_dir, outcome)
 
-            rows = read_latest_rows(path)
-
-        one = '{"kind":"post","owner_id":"owner","post_id":"one"}'
-        two = '{"kind":"post","owner_id":"owner","post_id":"two"}'
-        self.assertEqual(set(rows), {one, two})
-        self.assertEqual(rows[one]["text"]["value"], "new")
-        self.assertEqual(rows[two]["text"]["value"], "other")
-
-    def test_latest_identity_keys_do_not_collide_when_components_contain_colons(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "posts-latest.csv"
-            first = self.outcome("3", "first")
-            first["post_identity"] = {"kind": "post", "owner_id": "1:2", "post_id": "3"}
-            second = self.outcome("2:3", "second")
-            second["post_identity"] = {"kind": "post", "owner_id": "1", "post_id": "2:3"}
-            write_latest(path, first)
-            write_latest(path, second)
-
-            rows = read_latest_rows(path)
-
-        self.assertEqual(len(rows), 2)
-        self.assertEqual({record["text"]["value"] for record in rows.values()}, {"first", "second"})
-
-    def test_latest_rejects_a_malformed_header_without_replacing_the_file(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "posts-latest.csv"
-            original = b"identity_kind,identity_post_id\\npost,123\\n"
-            path.write_bytes(original)
-
-            with self.assertRaisesRegex(OfflineCaptureError, "schema"):
-                write_latest(path, self.outcome("new", "new text"))
-
-            self.assertEqual(path.read_bytes(), original)
-
-    def test_latest_rejects_a_malformed_row_without_replacing_the_file(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "posts-latest.csv"
-            write_latest(path, self.outcome("old", "old text"))
-            original = path.read_text(encoding="utf-8")
-            original = original.replace(
-                "2026-10-21T04:30:15Z,2026-10-21T04:30:15Z",
-                "2026-10-21T04:30:15Z,bad timestamp",
-            )
-            path.write_text(original, encoding="utf-8")
-
-            with self.assertRaisesRegex(OfflineCaptureError, "collected_at"):
-                write_latest(path, self.outcome("new", "new text"))
-
-            self.assertEqual(path.read_text(encoding="utf-8"), original)
+            result_files = [path for path in output_dir.rglob("*") if path.is_file()]
+            self.assertEqual(result_files, [])
 
 
 if __name__ == "__main__":
