@@ -218,6 +218,26 @@ class StorageContractTests(unittest.TestCase):
 
             self.assertEqual(latest_path.read_text(encoding="utf-8"), malformed)
 
+    def test_csv_value_error_removes_temporary_and_run_artifacts(self):
+        record = outcome({"kind": "post", "post_id": "123", "owner_id": "456"})
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory) / "output"
+            run_directory = output_dir / "runs" / "invalid-csv"
+
+            with patch.object(
+                csv.DictWriter,
+                "writerows",
+                side_effect=ValueError("synthetic CSV failure"),
+            ):
+                with self.assertRaisesRegex(ValueError, "synthetic CSV failure"):
+                    write_run(output_dir, [record], "completed", None, run_id="invalid-csv")
+
+            self.assertFalse(run_directory.exists())
+            self.assertEqual(
+                [path for path in output_dir.rglob("*") if path.is_file()],
+                [],
+            )
+
     def test_run_artifact_failure_does_not_mutate_existing_latest(self):
         old = outcome({"kind": "post", "post_id": "old", "owner_id": "owner"})
         replacement = outcome({"kind": "post", "post_id": "new", "owner_id": "owner"})

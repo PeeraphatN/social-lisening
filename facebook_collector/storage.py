@@ -268,7 +268,7 @@ def _write_csv_atomically(path: Path, outcomes: list[dict]) -> None:
             writer.writeheader()
             writer.writerows(_outcome_to_row(outcome) for outcome in outcomes)
         os.replace(temporary_name, path)
-    except OSError:
+    except (OSError, TypeError, ValueError):
         if temporary_name:
             Path(temporary_name).unlink(missing_ok=True)
         raise

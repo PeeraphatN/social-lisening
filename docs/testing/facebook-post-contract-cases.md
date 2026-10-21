@@ -147,7 +147,7 @@ route is allowed.
   repeated-URL ordering, UTF-8 input-file blank-line handling, the pre-network
   10-unique limit, invalid-only result artifacts/return values, and fail-closed
   supported URLs; they do not claim live collection.
-- Focused transport-free URL/model/storage tests: **21**. They cover pure admission,
+- Focused transport-free URL/model/storage tests: **22**. They cover pure admission,
   redirect reason mapping, queue/dedupe/null-envelope rules, and isolated target-schema
   persistence; broader rows stay awaiting public-flow integration.
 - Executable collector integration tests: **1** — the separate one-URL offline
