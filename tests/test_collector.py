@@ -367,14 +367,35 @@ class CollectorPublicCoreTests(unittest.TestCase):
         self.assertIsNone(results["outcomes"][0]["duplicate_of"])
         self.assertEqual(results["outcomes"][1]["duplicate_of"], 0)
 
-    def test_accepted_input_fails_closed_until_live_collection_exists(self):
-        with tempfile.TemporaryDirectory() as directory:
-            output_dir = Path(directory) / "output"
+    def test_pfbid_live_path_reuses_one_browser_and_the_serial_retry_owner(self):
+        class Browser:
+            def __init__(self): self.closed = False
+            def close(self): self.closed = True
+        class Runtime:
+            def __init__(self): self.stopped = False
+            def stop(self): self.stopped = True
 
-            with self.assertRaises(CollectionUnavailable):
-                collect_posts([VALID_URL], output_dir)
+        browser, runtime = Browser(), Runtime()
+        url = "https://www.facebook.com/acme/posts/pfbidABC123"
+        attempts = []
+        def live(input_url, *, attempt_timeout_seconds, browser):
+            attempts.append((input_url, attempt_timeout_seconds, browser))
+            result = build_synthetic_outcome(input_url, {"status": "timeout"}, attempt_timeout_seconds=30)
+            return result
 
-            self.assertFalse(output_dir.exists())
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "facebook_collector.collector._launch_browser", return_value=(browser, runtime)
+        ), patch("facebook_collector.playwright_adapter.collect_live_one", side_effect=live), patch(
+            "facebook_collector.model.time.sleep"
+        ) as sleep:
+            results = collect_posts([url], Path(directory), log=True)
+
+        self.assertEqual([timeout for _, timeout, _ in attempts], [30, 30, 30, 30])
+        self.assertTrue(all(item[2] is browser for item in attempts))
+        self.assertEqual(sleep.call_args_list, [call(2), call(4), call(8)])
+        self.assertEqual(results["outcomes"][0]["status"], "timeout")
+        self.assertTrue(browser.closed)
+        self.assertTrue(runtime.stopped)
 
     def test_empty_or_over_limit_batch_rejects_before_output(self):
         cases = [[], [f"https://invalid/{index}" for index in range(11)]]

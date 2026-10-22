@@ -22,6 +22,24 @@ class CollectionUnavailable(RuntimeError):
     """The requested path needs a collector slice that is not implemented yet."""
 
 
+def _launch_browser():
+    """Start one private synchronous Chromium browser for this invocation."""
+    # Official API: https://playwright.dev/python/docs/library
+    try:
+        from playwright.sync_api import sync_playwright
+    except ModuleNotFoundError as error:
+        raise CollectionUnavailable(
+            "live collection requires Playwright; install playwright with: python -m pip install -r requirements.txt"
+        ) from error
+
+    runtime = sync_playwright().start()
+    try:
+        return runtime.chromium.launch(headless=True), runtime
+    except Exception:
+        runtime.stop()
+        raise
+
+
 def collect_posts(urls, output_dir, *, log=False) -> dict:
     """Collect an ordered batch and return the same document written to results.json."""
     if isinstance(urls, (str, bytes)):
@@ -36,8 +54,10 @@ def collect_posts(urls, output_dir, *, log=False) -> dict:
         offline_capture = load_offline_capture(
             Path(os.environ["FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE"])
         )
+    browser = runtime = None
 
     def collect_one(input_url: str, *, attempt_timeout_seconds: int) -> dict:
+        nonlocal browser, runtime
         if offline_capture is not None:
             if input_url == offline_capture["submitted_url"]:
                 return build_outcome(input_url, offline_capture)
@@ -54,7 +74,15 @@ def collect_posts(urls, output_dir, *, log=False) -> dict:
             return empty_outcome(input_url, 0, "invalid_input", error.reason)
         if offline_capture is not None:
             raise OfflineCaptureError("input URL does not match offline capture")
-        raise CollectionUnavailable("live collection is not implemented yet")
+        if browser is None:
+            browser, runtime = _launch_browser()
+        from facebook_collector.playwright_adapter import collect_live_one
+
+        return collect_live_one(
+            input_url,
+            attempt_timeout_seconds=attempt_timeout_seconds,
+            browser=browser,
+        )
 
     def record_event(event: str, outcome: dict, attempt: int | None, input_index: int) -> None:
         record = {
@@ -75,13 +103,19 @@ def collect_posts(urls, output_dir, *, log=False) -> dict:
             record["http_status"] = outcome["_event_http_status"]
         events.append(record)
 
-    outcomes, stop_reason = run_serial(
-        inputs, collect_one, event_sink=record_event if log else None
-    )
-    run_status = "stopped" if stop_reason else "completed"
-    return write_run(
-        Path(output_dir), outcomes, run_status, stop_reason, events=events if log else None
-    )
+    try:
+        outcomes, stop_reason = run_serial(
+            inputs, collect_one, event_sink=record_event if log else None
+        )
+        run_status = "stopped" if stop_reason else "completed"
+        return write_run(
+            Path(output_dir), outcomes, run_status, stop_reason, events=events if log else None
+        )
+    finally:
+        if browser is not None:
+            browser.close()
+        if runtime is not None:
+            runtime.stop()
 
 
 def utc_now() -> str:

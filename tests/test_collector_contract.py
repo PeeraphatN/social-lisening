@@ -1,11 +1,17 @@
 """Black-box tests for the approved Facebook collector public contract."""
 
 import json
+import io
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from unittest.mock import patch
+
+from facebook_collector import CollectionUnavailable
+from facebook_collector.__main__ import main
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -50,35 +56,23 @@ class CollectorCliContractTests(unittest.TestCase):
         )
         self.assertNotEqual(completed.returncode, 0)
 
-    def test_valid_collect_fails_closed_until_collection_is_implemented(self):
-        """A valid command must not report success without collecting output."""
+    def test_valid_collect_without_the_pinned_dependency_reports_install_action(self):
+        """A valid command without Playwright must fail before creating output."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             output_dir = root / "output"
-
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "facebook_collector",
-                    "collect",
-                    "--url",
-                    "https://www.facebook.com/share/p/19TTvcsmZ8/",
-                    "--output-dir",
-                    str(output_dir),
-                ],
-                cwd=REPO_ROOT,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-
+            stderr = io.StringIO()
+            with patch(
+                "facebook_collector.collector._launch_browser",
+                side_effect=CollectionUnavailable("install playwright"),
+            ), redirect_stderr(stderr):
+                exit_code = main([
+                    "collect", "--url", "https://www.facebook.com/share/p/19TTvcsmZ8/",
+                    "--output-dir", str(output_dir),
+                ])
             self.assertFalse(output_dir.exists())
-
-        diagnostic = completed.stdout + completed.stderr
-        self.assertNotEqual(completed.returncode, 0)
-        self.assertIn("not implemented", diagnostic.lower())
+        self.assertEqual(exit_code, 1)
+        self.assertIn("install playwright", stderr.getvalue().lower())
 
     def test_utf8_input_file_ignores_blank_lines_and_preserves_order(self):
         with tempfile.TemporaryDirectory() as directory:
