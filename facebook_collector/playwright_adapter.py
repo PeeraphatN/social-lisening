@@ -27,7 +27,7 @@ def parse_identity(url: str) -> dict | None:
         admitted = validate_public_url(url)
     except UrlRejected:
         return None
-    return admitted["identity"] if admitted["family"] in {"pfbid", "photo"} else None
+    return admitted["identity"] if admitted["family"] in {"pfbid", "photo", "group"} else None
 
 
 class _ArticleParser(HTMLParser):

@@ -16,6 +16,10 @@ URL = "https://www.facebook.com/acme/posts/pfbidABC123"
 PHOTO_URL = "https://www.facebook.com/photo/?fbid=1649985453249994"
 PHOTO_URL_WITH_SET = "https://www.facebook.com/photo/?fbid=1649985453249994&set=a.194492012132686"
 OTHER_PHOTO_URL = "https://www.facebook.com/photo/?fbid=1649985453249995"
+GROUP_LISTING_URL = "https://www.facebook.com/groups/100/?multi_permalinks=200&hoisted_section_header_type=recently_seen"
+GROUP_LISTING_NO_HOIST_URL = "https://www.facebook.com/groups/100/?multi_permalinks=200"
+GROUP_EXPLICIT_URL = "https://www.facebook.com/groups/100/posts/200/"
+GROUP_EXPLICIT_NO_SLASH_URL = "https://www.facebook.com/groups/100/posts/200"
 
 
 def story_html(*, href=URL, reaction="12", comment="3", share="0", text="Target text"):
@@ -29,6 +33,10 @@ def story_html(*, href=URL, reaction="12", comment="3", share="0", text="Target 
     return f'''<article role="article"><a href="{href}">permalink</a>
     <div data-ad-rendering-role="story_message">{text}</div>
     {counters}</article>'''
+
+
+def group_story_html(*, href=GROUP_EXPLICIT_URL, reaction="12", comment="3", share="0", text="Target text"):
+    return story_html(href=href, reaction=reaction, comment=comment, share=share, text=text)
 
 
 class FakeResponse:
@@ -97,6 +105,63 @@ class IdentityAndExtractionTests(unittest.TestCase):
         self.assertEqual(result["counters"]["comment"], {"value": None, "raw": None, "quality": "missing", "source": None})
         self.assertFalse(result["latest_updated"])
 
+    def test_group_listing_and_explicit_routes_share_one_verified_identity(self):
+        expected = {"kind": "group", "group_id": "100", "post_id": "200"}
+        for requested, final in (
+            (GROUP_LISTING_NO_HOIST_URL, GROUP_EXPLICIT_URL),
+            (GROUP_LISTING_URL, GROUP_EXPLICIT_URL),
+            (GROUP_EXPLICIT_URL, GROUP_LISTING_URL),
+            (GROUP_EXPLICIT_NO_SLASH_URL, GROUP_EXPLICIT_URL),
+        ):
+            with self.subTest(requested=requested, final=final):
+                self.assertEqual(parse_identity(requested), expected)
+                result = extract_pfbid_capture(requested, final, group_story_html())
+                self.assertEqual(result["post_identity"], expected)
+                self.assertEqual(result["text"]["value"], "Target text")
+                self.assertEqual(result["counters"]["share"]["value"], 0)
+
+    def test_group_target_rejects_route_mismatch_and_ambiguous_articles(self):
+        wrong_group = "https://www.facebook.com/groups/101/posts/200/"
+        wrong_post = "https://www.facebook.com/groups/100/posts/201/"
+        self.assertIsNone(extract_pfbid_capture(GROUP_LISTING_URL, wrong_group, group_story_html()))
+        self.assertIsNone(extract_pfbid_capture(GROUP_LISTING_URL, wrong_post, group_story_html()))
+        self.assertIsNone(
+            extract_pfbid_capture(
+                GROUP_LISTING_URL, GROUP_EXPLICIT_URL, group_story_html() + group_story_html()
+            )
+        )
+
+    def test_group_target_ignores_neighbour_comment_and_menu_numbers(self):
+        neighbour = group_story_html(
+            href="https://www.facebook.com/groups/100/posts/201/",
+            reaction="999",
+            comment="888",
+            share="777",
+            text="Neighbour text",
+        )
+        menu_noise = "<div>555 comments</div><button>444 shares</button>"
+        result = extract_pfbid_capture(
+            GROUP_LISTING_URL,
+            GROUP_EXPLICIT_URL,
+            group_story_html(reaction="0", comment="0", share="0") + neighbour + menu_noise,
+        )
+        self.assertEqual(result["text"]["value"], "Target text")
+        self.assertEqual(
+            [result["counters"][name]["value"] for name in ("reaction", "comment", "share")],
+            [0, 0, 0],
+        )
+
+    def test_group_target_preserves_null_metric_evidence(self):
+        result = extract_pfbid_capture(
+            GROUP_EXPLICIT_URL,
+            GROUP_EXPLICIT_URL,
+            group_story_html(reaction="", comment="", share=""),
+        )
+        self.assertEqual(
+            [result["counters"][name]["value"] for name in ("reaction", "comment", "share")],
+            [None, None, None],
+        )
+
 
 class AdapterTests(unittest.TestCase):
     def test_adapter_uses_nonpersistent_context_and_closes_it(self):
@@ -118,3 +183,18 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual((unavailable["status"], unavailable["reason"], unavailable["_event_http_status"]), ("error", "post_unavailable", 404))
         timeout = collect_live_one(URL, attempt_timeout_seconds=30, browser=FakeBrowser(FakePage("", URL, error=TimeoutError()), []))
         self.assertEqual((timeout["status"], timeout["_retryable"]), ("timeout", True))
+
+    def test_group_listing_live_flow_uses_final_explicit_route_and_fake_browser_only(self):
+        calls = []
+        page = FakePage(group_story_html(), GROUP_EXPLICIT_URL)
+        with patch.object(socket, "create_connection", side_effect=AssertionError("socket")), patch.object(
+            socket.socket, "connect", side_effect=AssertionError("socket")
+        ), patch.object(subprocess, "Popen", side_effect=AssertionError("process")):
+            result = collect_live_one(
+                GROUP_LISTING_URL,
+                attempt_timeout_seconds=30,
+                browser=FakeBrowser(page, calls),
+            )
+        self.assertEqual(result["status"], "collected")
+        self.assertEqual(result["post_identity"], {"kind": "group", "group_id": "100", "post_id": "200"})
+        self.assertEqual(calls, ["context", "page", "context.close"])

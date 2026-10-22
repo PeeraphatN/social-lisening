@@ -21,6 +21,8 @@ BLOCKED_URL = "https://www.facebook.com/900000007654321/posts/900000001234569/"
 RETRY_URL = "https://www.facebook.com/900000007654321/posts/900000001234570/"
 HTTP_URL = "https://www.facebook.com/900000007654321/posts/900000001234571/"
 PHOTO_URL = "https://www.facebook.com/photo/?fbid=1649985453249994"
+GROUP_LISTING_URL = "https://www.facebook.com/groups/100/?multi_permalinks=200"
+GROUP_EXPLICIT_URL = "https://www.facebook.com/groups/100/posts/200/"
 
 
 class CollectorPublicCoreTests(unittest.TestCase):
@@ -433,6 +435,43 @@ class CollectorPublicCoreTests(unittest.TestCase):
         self.assertEqual(browser.contexts, 1)
         self.assertTrue(browser.closed)
         self.assertTrue(runtime.stopped)
+
+    def test_group_listing_public_flow_writes_explicit_target_identity_offline(self):
+        class Page:
+            url = GROUP_EXPLICIT_URL
+            def goto(self, url, *, timeout, wait_until):
+                self.requested, self.timeout, self.wait_until = url, timeout, wait_until
+                return type("Response", (), {"status": 200})()
+            def content(self):
+                return '''<article role="article"><a href="/groups/100/posts/200/">target</a>
+                <div data-ad-rendering-role="story_message">Group target</div>
+                <div data-counter="reaction">0</div><div data-counter="comment">0</div>
+                <div data-counter="share">0</div></article>'''
+        class Context:
+            def new_page(self): return page
+            def close(self): calls.append("context.close")
+        class Browser:
+            def new_context(self): calls.append("context"); return Context()
+            def close(self): calls.append("browser.close")
+        class Runtime:
+            def stop(self): calls.append("runtime.stop")
+
+        page, calls = Page(), []
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            socket, "create_connection", side_effect=AssertionError("network attempted")
+        ), patch.object(socket.socket, "connect", side_effect=AssertionError("network attempted")), patch.object(
+            subprocess, "Popen", side_effect=AssertionError("browser launch attempted")
+        ), patch(
+            "facebook_collector.collector._launch_browser", return_value=(Browser(), Runtime())
+        ):
+            results = collect_posts([GROUP_LISTING_URL], Path(directory) / "output")
+
+        outcome = results["outcomes"][0]
+        self.assertEqual(outcome["status"], "collected")
+        self.assertEqual(outcome["resolved_url"], GROUP_EXPLICIT_URL)
+        self.assertEqual(outcome["post_identity"], {"kind": "group", "group_id": "100", "post_id": "200"})
+        self.assertEqual(page.requested, GROUP_LISTING_URL)
+        self.assertEqual(calls, ["context", "context.close", "browser.close", "runtime.stop"])
 
     def test_empty_or_over_limit_batch_rejects_before_output(self):
         cases = [[], [f"https://invalid/{index}" for index in range(11)]]
