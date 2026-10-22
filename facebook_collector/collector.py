@@ -24,6 +24,8 @@ def collect_posts(urls, output_dir, *, log=False) -> dict:
         raise CollectionUnavailable("structured logging is not implemented yet")
     offline_capture = None
     if offline_enabled():
+        if len(inputs) != 1:
+            raise BatchValidationError("offline mode accepts exactly one URL")
         offline_capture = load_offline_capture(
             Path(os.environ["FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE"])
         )

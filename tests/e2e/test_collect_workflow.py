@@ -56,12 +56,6 @@ class CollectWorkflowE2ETests(unittest.TestCase):
                 {
                     "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(FIXTURE),
                     "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
-                    "HTTP_PROXY": "http://127.0.0.1:9",
-                    "HTTPS_PROXY": "http://127.0.0.1:9",
-                    "NO_PROXY": "",
-                    "http_proxy": "http://127.0.0.1:9",
-                    "https_proxy": "http://127.0.0.1:9",
-                    "no_proxy": "",
                 }
             )
 
