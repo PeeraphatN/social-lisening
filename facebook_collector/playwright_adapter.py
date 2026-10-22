@@ -225,9 +225,17 @@ def collect_live_one(input_url: str, *, attempt_timeout_seconds: int, browser) -
     try:
         page = context.new_page()
         try:
-            response = _navigate_with_validated_redirects(
-                page, input_url, attempt_timeout_seconds * 1000
-            )
+            requested = validate_public_url(input_url)
+            if requested["family"] == "share":
+                response = _navigate_with_validated_redirects(
+                    page, input_url, attempt_timeout_seconds * 1000
+                )
+            else:
+                response = page.goto(
+                    input_url,
+                    timeout=attempt_timeout_seconds * 1000,
+                    wait_until="domcontentloaded",
+                )
         except Exception as error:
             if isinstance(error, UrlRejected):
                 return _failure(input_url, "invalid_input", "unsafe_redirect")
