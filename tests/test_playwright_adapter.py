@@ -259,6 +259,45 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(calls, ["context", "page", "context.close"])
         self.assertEqual(page.calls, [("fetch", PHOTO_URL, 0), ("fulfill", PHOTO_URL, 200)])
 
+    def test_browser_accepted_navigation_is_not_replaced_by_rejected_fetch(self):
+        class BrowserSensitiveRoute:
+            def __init__(self, request, calls):
+                self.request, self.calls = request, calls
+                self.fulfilled_response = None
+                self.continued = False
+
+            def fetch(self, *, max_redirects):
+                self.calls.append(("fetch", self.request.url, max_redirects))
+                return FakeResponse(400)
+
+            def fulfill(self, *, response):
+                self.fulfilled_response = response
+
+            def abort(self):
+                self.calls.append(("abort", self.request.url))
+
+            def continue_(self):
+                self.continued = True
+
+        class BrowserSensitivePage(FakePage):
+            def goto(self, url, *, timeout, wait_until):
+                self.timeout, self.wait_until = timeout, wait_until
+                route = BrowserSensitiveRoute(FakeRequest(url), self.calls)
+                self.route_handler(route, route.request)
+                if route.continued:
+                    self.url = self.final_url
+                    return FakeResponse(200)
+                return route.fulfilled_response
+
+        page = BrowserSensitivePage(story_html(), URL)
+        result = collect_live_one(
+            URL,
+            attempt_timeout_seconds=30,
+            browser=FakeBrowser(page, []),
+        )
+
+        self.assertEqual((result["status"], result["reason"]), ("collected", None))
+
     def test_redirect_hop_cap_maps_long_allowed_chain_to_retryable_timeout(self):
         calls = []
         page = FakePage(
