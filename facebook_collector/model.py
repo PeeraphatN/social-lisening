@@ -57,10 +57,15 @@ def empty_outcome(input_url: str, input_index: int, status: str, reason: str) ->
     }
 
 
-def run_serial(inputs: list[str], attempt) -> tuple[list[dict], str | None]:
-    """Attempt unique inputs in order and stop only for approved safety failures."""
+def validate_batch(inputs: list[str]) -> None:
+    """Reject batches that exceed the pre-transport unique URL limit."""
     if len(dict.fromkeys(inputs)) > MAX_UNIQUE_URLS:
         raise BatchValidationError("at most 10 unique URLs are allowed")
+
+
+def run_serial(inputs: list[str], attempt) -> tuple[list[dict], str | None]:
+    """Attempt unique inputs in order and stop only for approved safety failures."""
+    validate_batch(inputs)
 
     outcomes = []
     first_indexes = {}

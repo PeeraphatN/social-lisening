@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 
-from facebook_collector.model import capture_status
+from facebook_collector.model import capture_status, empty_outcome
 from facebook_collector.storage import write_run
 
 
@@ -119,13 +119,35 @@ def load_offline_capture(path: Path) -> dict:
             "source": _required_string(metric.get("source"), f"engagement.{name}.source"),
         }
 
+    synthetic_outcomes = document.get("synthetic_outcomes", [])
+    if not isinstance(synthetic_outcomes, list):
+        raise OfflineCaptureError("synthetic_outcomes must be a list")
+    normalized_synthetic_outcomes = {}
+    for index, outcome in enumerate(synthetic_outcomes):
+        outcome = _required_mapping(outcome, f"synthetic_outcomes[{index}]")
+        submitted_url = _fixture_post_url(
+            outcome.get("submitted_url"), f"synthetic_outcomes[{index}].submitted_url"
+        )
+        status = outcome.get("status")
+        if status not in {"identity_unverified", "blocked"}:
+            raise OfflineCaptureError(
+                f"synthetic_outcomes[{index}].status must be identity_unverified or blocked"
+            )
+        if submitted_url in normalized_synthetic_outcomes:
+            raise OfflineCaptureError("synthetic_outcomes must not repeat submitted_url")
+        normalized_synthetic_outcomes[submitted_url] = status
+
+    submitted_url = _fixture_post_url(capture.get("submitted_url"), "submitted_url")
+    if submitted_url in normalized_synthetic_outcomes:
+        raise OfflineCaptureError("synthetic_outcomes must not repeat observed_capture submitted_url")
     return {
-        "submitted_url": _fixture_post_url(capture.get("submitted_url"), "submitted_url"),
+        "submitted_url": submitted_url,
         "resolved_url": _fixture_post_url(capture.get("resolved_url"), "resolved_url"),
         "validated_identity": validated_identity,
         "captured_at": _utc_rfc3339(capture.get("captured_at")),
         "candidate_text": normalized_text,
         "engagement": normalized_engagement,
+        "synthetic_outcomes": normalized_synthetic_outcomes,
     }
 
 
@@ -166,6 +188,18 @@ def build_outcome(input_url: str, capture: dict) -> dict:
         "counters": counters,
         "latest_updated": False,
     }
+
+
+def build_synthetic_outcome(input_url: str, outcome: str) -> dict:
+    """Build a complete offline item-error envelope after a synthetic attempt."""
+    if outcome == "identity_unverified":
+        result = empty_outcome(input_url, 0, "error", outcome)
+    elif outcome == "blocked":
+        result = empty_outcome(input_url, 0, outcome, outcome)
+    else:
+        raise OfflineCaptureError("unsupported synthetic outcome")
+    result["attempted_at"] = utc_now()
+    return result
 
 
 def write_offline_run(output_dir: Path, outcome: dict) -> Path:

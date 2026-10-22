@@ -19,11 +19,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
-    from facebook_collector.offline import offline_enabled
-
-    if offline_enabled() and (arguments.input_file or len(arguments.url) != 1):
-        print("offline mode accepts exactly one --url", file=sys.stderr)
-        return 2
     if arguments.input_file:
         try:
             lines = Path(arguments.input_file).read_text(encoding="utf-8").splitlines()

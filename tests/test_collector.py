@@ -15,9 +15,87 @@ from facebook_collector.model import BatchValidationError
 VALID_URL = "https://www.facebook.com/share/p/19TTvcsmZ8/"
 SYNTHETIC_URL = "https://www.facebook.com/900000007654321/posts/900000001234567/"
 OFFLINE_FIXTURE = Path(__file__).parent / "e2e" / "fixtures" / "single-collected.json"
+IDENTITY_UNVERIFIED_URL = "https://www.facebook.com/900000007654321/posts/900000001234568/"
+BLOCKED_URL = "https://www.facebook.com/900000007654321/posts/900000001234569/"
 
 
 class CollectorPublicCoreTests(unittest.TestCase):
+    def mixed_fixture(self, directory: str) -> Path:
+        fixture = json.loads(OFFLINE_FIXTURE.read_text(encoding="utf-8"))
+        fixture["synthetic_outcomes"] = [
+            {
+                "submitted_url": IDENTITY_UNVERIFIED_URL,
+                "status": "identity_unverified",
+            },
+            {"submitted_url": BLOCKED_URL, "status": "blocked"},
+        ]
+        path = Path(directory) / "mixed-capture.json"
+        path.write_text(json.dumps(fixture), encoding="utf-8")
+        return path
+
+    def test_offline_public_core_collects_mixed_batch_in_order_and_deduplicates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.mixed_fixture(directory)
+            with patch.dict(
+                os.environ,
+                {
+                    "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(fixture),
+                    "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
+                },
+            ), patch("socket.create_connection", side_effect=AssertionError("network attempted")), patch(
+                "socket.socket.connect", side_effect=AssertionError("network attempted")
+            ), patch("subprocess.Popen", side_effect=AssertionError("browser launch attempted")), patch(
+                "time.sleep"
+            ) as sleep:
+                results = collect_posts(
+                    [SYNTHETIC_URL, "not a URL", IDENTITY_UNVERIFIED_URL, SYNTHETIC_URL],
+                    Path(directory) / "output",
+                )
+
+        sleep.assert_not_called()
+
+        self.assertEqual(results["run_status"], "completed")
+        self.assertIsNone(results["stop_reason"])
+        self.assertEqual(
+            [(outcome["input_index"], outcome["status"], outcome["reason"])
+            for outcome in results["outcomes"]
+            ],
+            [
+                (0, "collected", None),
+                (1, "invalid_input", "malformed_url"),
+                (2, "error", "identity_unverified"),
+                (3, "collected", None),
+            ],
+        )
+        self.assertEqual(results["outcomes"][3]["duplicate_of"], 0)
+        self.assertFalse(results["outcomes"][3]["latest_updated"])
+
+    def test_offline_public_core_stops_after_synthetic_block(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.mixed_fixture(directory)
+            with patch.dict(
+                os.environ,
+                {
+                    "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(fixture),
+                    "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
+                },
+            ), patch("socket.create_connection", side_effect=AssertionError("network attempted")), patch(
+                "socket.socket.connect", side_effect=AssertionError("network attempted")
+            ), patch("subprocess.Popen", side_effect=AssertionError("browser launch attempted")):
+                results = collect_posts(
+                    [SYNTHETIC_URL, BLOCKED_URL, IDENTITY_UNVERIFIED_URL],
+                    Path(directory) / "output",
+                )
+
+        self.assertEqual(results["run_status"], "stopped")
+        self.assertEqual(results["stop_reason"], "blocked")
+        self.assertEqual(
+            [(outcome["status"], outcome["reason"]) for outcome in results["outcomes"]],
+            [("collected", None), ("blocked", "blocked"), ("not_attempted", "blocked")],
+        )
+        self.assertIsNone(results["outcomes"][2]["attempted_at"])
+        self.assertIsNone(results["outcomes"][2]["post_identity"])
+
     def test_cli_delegates_the_offline_seam_to_the_public_core(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ,
@@ -39,30 +117,53 @@ class CollectorPublicCoreTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             collect.assert_called_once_with([SYNTHETIC_URL], output_dir, log=False)
 
-    def test_offline_cli_rejects_input_file_and_multiple_urls_before_artifacts(self):
-        with tempfile.TemporaryDirectory() as directory, patch.dict(
-            os.environ,
-            {
-                "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(OFFLINE_FIXTURE),
-                "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
-            },
-        ):
+    def test_offline_cli_accepts_repeated_urls_and_utf8_input_file_batches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.mixed_fixture(directory)
             input_file = Path(directory) / "urls.txt"
-            input_file.write_text(SYNTHETIC_URL + "\n", encoding="utf-8")
+            input_file.write_text(
+                f"\n{SYNTHETIC_URL}\n\nnot a URL\n{IDENTITY_UNVERIFIED_URL}\n{SYNTHETIC_URL}\n",
+                encoding="utf-8",
+            )
             cases = [
                 ["collect", "--input-file", str(input_file)],
-                ["collect", "--url", SYNTHETIC_URL, "--url", SYNTHETIC_URL],
+                [
+                    "collect",
+                    "--url",
+                    SYNTHETIC_URL,
+                    "--url",
+                    "not a URL",
+                    "--url",
+                    IDENTITY_UNVERIFIED_URL,
+                    "--url",
+                    SYNTHETIC_URL,
+                ],
             ]
+            expected_inputs = [SYNTHETIC_URL, "not a URL", IDENTITY_UNVERIFIED_URL, SYNTHETIC_URL]
             for index, arguments in enumerate(cases):
-                with self.subTest(arguments=arguments), patch(
-                    "facebook_collector.collect_posts"
+                with self.subTest(arguments=arguments), patch.dict(
+                    os.environ,
+                    {
+                        "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(fixture),
+                        "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
+                    },
+                ), patch("socket.create_connection", side_effect=AssertionError("network attempted")), patch(
+                    "socket.socket.connect", side_effect=AssertionError("network attempted")
+                ), patch("subprocess.Popen", side_effect=AssertionError("browser launch attempted")), patch(
+                    "facebook_collector.collect_posts", wraps=collect_posts
                 ) as collect:
                     output_dir = Path(directory) / f"output-{index}"
                     exit_code = main([*arguments, "--output-dir", str(output_dir)])
 
-                    self.assertEqual(exit_code, 2)
-                    collect.assert_not_called()
-                    self.assertFalse(output_dir.exists())
+                    self.assertEqual(exit_code, 0)
+                    collect.assert_called_once_with(expected_inputs, output_dir, log=False)
+                    run_directory = next((output_dir / "runs").iterdir())
+                    written = json.loads((run_directory / "results.json").read_text(encoding="utf-8"))
+                    self.assertEqual(
+                        [outcome["status"] for outcome in written["outcomes"]],
+                        ["collected", "invalid_input", "error", "collected"],
+                    )
+                    self.assertEqual(written["outcomes"][-1]["duplicate_of"], 0)
 
     def test_non_offline_cli_keeps_input_file_behavior_for_future_slices(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -109,23 +210,24 @@ class CollectorPublicCoreTests(unittest.TestCase):
             self.assertTrue((run_directory / "posts.csv").exists())
             self.assertTrue((output_dir / "posts-latest.csv").exists())
 
-    def test_offline_public_api_rejects_batches_other_than_one_before_artifacts(self):
-        cases = [[], [SYNTHETIC_URL, SYNTHETIC_URL], [SYNTHETIC_URL, VALID_URL]]
+    def test_offline_public_api_rejects_over_limit_before_loading_fixture_or_artifacts(self):
+        inputs = [f"https://www.facebook.com/900000007654321/posts/90000000123{index:02d}/" for index in range(11)]
         with patch.dict(
             os.environ,
             {
                 "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(OFFLINE_FIXTURE),
                 "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
             },
+        ), tempfile.TemporaryDirectory() as directory, patch(
+            "facebook_collector.collector.load_offline_capture",
+            side_effect=AssertionError("fixture loading attempted"),
         ):
-            for inputs in cases:
-                with self.subTest(inputs=inputs), tempfile.TemporaryDirectory() as directory:
-                    output_dir = Path(directory) / "output"
+            output_dir = Path(directory) / "output"
 
-                    with self.assertRaises(BatchValidationError):
-                        collect_posts(inputs, output_dir)
+            with self.assertRaises(BatchValidationError):
+                collect_posts(inputs, output_dir)
 
-                    self.assertFalse(output_dir.exists())
+            self.assertFalse(output_dir.exists())
 
     def test_invalid_input_writes_and_returns_one_trustworthy_null_outcome(self):
         with tempfile.TemporaryDirectory() as directory:
