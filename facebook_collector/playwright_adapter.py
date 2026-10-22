@@ -10,7 +10,11 @@ import re
 from urllib.parse import urljoin
 
 from facebook_collector.model import capture_status, empty_outcome
-from facebook_collector.url_validation import UrlRejected, validate_public_url
+from facebook_collector.url_validation import (
+    UrlRejected,
+    validate_public_url,
+    validate_redirect_url,
+)
 
 
 COUNTERS = ("reaction", "comment", "share")
@@ -94,8 +98,14 @@ def extract_pfbid_capture(input_url: str, resolved_url: str, html: str) -> dict 
     A matching route alone is not enough: exactly one rendered article must
     declare the same route.  Text and counters are read only from that article.
     """
-    requested, final = parse_identity(input_url), parse_identity(resolved_url)
-    if requested is None or final is None or requested != final or not isinstance(html, str):
+    try:
+        requested = validate_public_url(input_url)
+    except UrlRejected:
+        return None
+    final = parse_identity(resolved_url)
+    if final is None or not isinstance(html, str):
+        return None
+    if requested["family"] != "share" and requested["identity"] != final:
         return None
     parser = _ArticleParser(resolved_url)
     parser.feed(html)
@@ -147,14 +157,80 @@ def _looks_blocked(html: str) -> bool:
     return any(marker in text for marker in ("log in to facebook", "security check", "captcha", "unusual activity"))
 
 
+def _location(response) -> str | None:
+    """Return a redirect Location without accepting malformed response data."""
+    headers = getattr(response, "headers", None)
+    if not isinstance(headers, dict):
+        return None
+    for name, value in headers.items():
+        if isinstance(name, str) and name.lower() == "location" and isinstance(value, str):
+            return value
+    return None
+
+
+def _is_main_navigation(request) -> bool:
+    checker = getattr(request, "is_navigation_request", None)
+    return bool(checker()) if callable(checker) else False
+
+
+def _navigate_with_validated_redirects(page, input_url: str, timeout: int):
+    """Fetch each main-document hop without auto-following an unchecked Location."""
+    state = {"next_url": None, "unsafe": False}
+
+    def route_handler(route, request):
+        if not _is_main_navigation(request):
+            route.continue_()
+            return
+        response = route.fetch(max_redirects=0)
+        status = getattr(response, "status", 0)
+        if status in {301, 302, 303, 307, 308}:
+            location = _location(response)
+            target = urljoin(request.url, location) if location else None
+            try:
+                if target is None:
+                    raise UrlRejected("unsafe_redirect")
+                validate_redirect_url(target)
+            except UrlRejected:
+                state["unsafe"] = True
+            else:
+                state["next_url"] = target
+            route.abort()
+            return
+        route.fulfill(response=response)
+
+    page.route("**/*", route_handler)
+    current_url = input_url
+    try:
+        while True:
+            state["next_url"] = None
+            try:
+                response = page.goto(current_url, timeout=timeout, wait_until="domcontentloaded")
+            except Exception:
+                if state["unsafe"]:
+                    raise UrlRejected("unsafe_redirect")
+                if state["next_url"] is None:
+                    raise
+            if state["unsafe"]:
+                raise UrlRejected("unsafe_redirect")
+            if state["next_url"] is None:
+                return response
+            current_url = state["next_url"]
+    finally:
+        page.unroute("**/*", route_handler)
+
+
 def collect_live_one(input_url: str, *, attempt_timeout_seconds: int, browser) -> dict:
     """Perform one anonymous non-persistent context attempt using an injected browser."""
     context = browser.new_context()
     try:
         page = context.new_page()
         try:
-            response = page.goto(input_url, timeout=attempt_timeout_seconds * 1000, wait_until="domcontentloaded")
+            response = _navigate_with_validated_redirects(
+                page, input_url, attempt_timeout_seconds * 1000
+            )
         except Exception as error:
+            if isinstance(error, UrlRejected):
+                return _failure(input_url, "invalid_input", "unsafe_redirect")
             if error.__class__.__name__ == "TimeoutError":
                 outcome = _failure(input_url, "timeout", "transport_timeout")
                 outcome["_retryable"] = True
@@ -165,9 +241,11 @@ def collect_live_one(input_url: str, *, attempt_timeout_seconds: int, browser) -
         if failed is not None:
             return failed
         try:
-            validate_public_url(page.url)
+            final = validate_redirect_url(page.url)
         except UrlRejected:
             return _failure(input_url, "invalid_input", "unsafe_redirect", http_status=status)
+        if final["family"] == "share" or final["identity"] is None:
+            return _failure(input_url, "error", "identity_unverified", http_status=status)
         html = page.content()
         if _looks_blocked(html):
             return _failure(input_url, "blocked", "blocked", http_status=status)

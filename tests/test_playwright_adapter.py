@@ -20,6 +20,7 @@ GROUP_LISTING_URL = "https://www.facebook.com/groups/100/?multi_permalinks=200&h
 GROUP_LISTING_NO_HOIST_URL = "https://www.facebook.com/groups/100/?multi_permalinks=200"
 GROUP_EXPLICIT_URL = "https://www.facebook.com/groups/100/posts/200/"
 GROUP_EXPLICIT_NO_SLASH_URL = "https://www.facebook.com/groups/100/posts/200"
+SHARE_URL = "https://www.facebook.com/share/p/19TTvcsmZ8/"
 
 
 def story_html(*, href=URL, reaction="12", comment="3", share="0", text="Target text"):
@@ -40,16 +41,45 @@ def group_story_html(*, href=GROUP_EXPLICIT_URL, reaction="12", comment="3", sha
 
 
 class FakeResponse:
-    def __init__(self, status): self.status = status
+    def __init__(self, status, headers=None):
+        self.status, self.headers = status, headers or {}
+
+
+class FakeRequest:
+    def __init__(self, url, *, navigation=True):
+        self.url, self._navigation = url, navigation
+    def is_navigation_request(self): return self._navigation
+
+
+class FakeRoute:
+    def __init__(self, request, response, calls):
+        self.request, self.response, self.calls = request, response, calls
+    def fetch(self, *, max_redirects):
+        self.calls.append(("fetch", self.request.url, max_redirects))
+        return self.response
+    def fulfill(self, *, response): self.calls.append(("fulfill", self.request.url, response.status))
+    def abort(self): self.calls.append(("abort", self.request.url))
+    def continue_(self): self.calls.append(("continue", self.request.url))
 
 
 class FakePage:
-    def __init__(self, html, final_url, response=200, error=None):
-        self.html, self.url, self.response, self.error = html, final_url, response, error
+    def __init__(self, html, final_url, response=200, error=None, hops=None):
+        self.html, self.url, self.final_url, self.response, self.error = html, final_url, final_url, response, error
+        self.hops, self.route_handler, self.calls = list(hops or []), None, []
+    def route(self, pattern, handler): self.route_handler = handler
+    def unroute(self, pattern, handler): self.route_handler = None
     def goto(self, url, *, timeout, wait_until):
         if self.error: raise self.error
         self.timeout, self.wait_until = timeout, wait_until
-        return FakeResponse(self.response)
+        if self.route_handler is None:
+            return FakeResponse(self.response)
+        response = self.hops.pop(0) if self.hops else FakeResponse(self.response)
+        route = FakeRoute(FakeRequest(url), response, self.calls)
+        self.route_handler(route, route.request)
+        if response.status in {301, 302, 303, 307, 308}:
+            raise RuntimeError("aborted redirect")
+        self.url = self.final_url
+        return response
     def content(self): return self.html
 
 
@@ -65,6 +95,10 @@ class FakeBrowser:
 
 
 class IdentityAndExtractionTests(unittest.TestCase):
+    def test_share_input_uses_safe_pfbid_destination_identity(self):
+        result = extract_pfbid_capture(SHARE_URL, URL, story_html())
+        self.assertEqual(result["post_identity"], {"kind": "pfbid", "route": "/acme/posts/pfbidABC123"})
+
     def test_pfbid_identity_requires_matching_final_route(self):
         self.assertEqual(parse_identity(URL), {"kind": "pfbid", "route": "/acme/posts/pfbidABC123"})
         result = extract_pfbid_capture(URL, "https://www.facebook.com/acme/posts/pfbidOTHER", story_html())
@@ -164,6 +198,42 @@ class IdentityAndExtractionTests(unittest.TestCase):
 
 
 class AdapterTests(unittest.TestCase):
+    def test_share_redirects_validate_each_hop_before_following(self):
+        calls = []
+        page = FakePage(
+            story_html(),
+            URL,
+            hops=[
+                FakeResponse(302, {"location": "/acme/posts/pfbidABC123"}),
+                FakeResponse(200),
+            ],
+        )
+        result = collect_live_one(SHARE_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
+        self.assertEqual((result["input_url"], result["resolved_url"], result["status"]), (SHARE_URL, URL, "collected"))
+        self.assertEqual(page.calls, [
+            ("fetch", SHARE_URL, 0),
+            ("abort", SHARE_URL),
+            ("fetch", URL, 0),
+            ("fulfill", URL, 200),
+        ])
+
+    def test_unsafe_redirect_is_aborted_before_following(self):
+        unsafe_locations = (
+            "https://evil.example/",
+            "http://www.facebook.com/acme/posts/pfbidABC123",
+            "https://user@www.facebook.com/acme/posts/pfbidABC123",
+            "https://www.facebook.com:8443/acme/posts/pfbidABC123",
+            "https://www.facebook.com/search/",
+            "https://www.facebook.com/acme/posts/pfbidABC123?tracking=1",
+        )
+        for location in unsafe_locations:
+            with self.subTest(location=location):
+                calls = []
+                page = FakePage("", URL, hops=[FakeResponse(302, {"location": location})])
+                result = collect_live_one(SHARE_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
+                self.assertEqual((result["status"], result["reason"], result["resolved_url"], result["_retryable"] if "_retryable" in result else False), ("invalid_input", "unsafe_redirect", None, False))
+                self.assertEqual(page.calls, [("fetch", SHARE_URL, 0), ("abort", SHARE_URL)])
+
     def test_adapter_uses_nonpersistent_context_and_closes_it(self):
         calls = []
         page = FakePage(story_html(), URL)

@@ -9,7 +9,7 @@ from unittest.mock import call, patch
 
 from facebook_collector import CollectionUnavailable, collect_posts
 from facebook_collector.__main__ import main
-from facebook_collector.model import BatchValidationError
+from facebook_collector.model import BatchValidationError, empty_outcome
 from facebook_collector.offline import build_synthetic_outcome
 
 
@@ -472,6 +472,48 @@ class CollectorPublicCoreTests(unittest.TestCase):
         self.assertEqual(outcome["post_identity"], {"kind": "group", "group_id": "100", "post_id": "200"})
         self.assertEqual(page.requested, GROUP_LISTING_URL)
         self.assertEqual(calls, ["context", "context.close", "browser.close", "runtime.stop"])
+
+    def test_unsafe_share_redirect_is_not_retried_and_batch_continues(self):
+        class Browser:
+            def close(self): pass
+        class Runtime:
+            def stop(self): pass
+
+        destination = "https://www.facebook.com/acme/posts/pfbidABC123"
+        calls = []
+
+        def live(input_url, *, attempt_timeout_seconds, browser):
+            calls.append(input_url)
+            if input_url == VALID_URL:
+                result = empty_outcome(input_url, 0, "invalid_input", "unsafe_redirect")
+                result["attempted_at"] = "2026-10-22T00:00:00Z"
+                return result
+            result = empty_outcome(input_url, 0, "collected", None)
+            result.update(
+                resolved_url=destination,
+                post_identity={"kind": "pfbid", "route": "/acme/posts/pfbidABC123"},
+                attempted_at="2026-10-22T00:00:00Z",
+                collected_at="2026-10-22T00:00:01Z",
+                text={"value": "target", "status": "candidate_text_unverified", "source": "test"},
+                counters={name: {"value": 0, "raw": "0", "quality": "exact", "source": "test"} for name in ("reaction", "comment", "share")},
+            )
+            return result
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "facebook_collector.collector._launch_browser", return_value=(Browser(), Runtime())
+        ), patch("facebook_collector.playwright_adapter.collect_live_one", side_effect=live), patch(
+            "socket.create_connection", side_effect=AssertionError("network attempted")
+        ), patch("socket.socket.connect", side_effect=AssertionError("network attempted")), patch(
+            "subprocess.Popen", side_effect=AssertionError("browser launch attempted")
+        ), patch("facebook_collector.model.time.sleep") as sleep:
+            results = collect_posts([VALID_URL, destination], Path(directory) / "output")
+
+        self.assertEqual(calls, [VALID_URL, destination])
+        sleep.assert_not_called()
+        self.assertEqual([(item["status"], item["reason"], item["latest_updated"]) for item in results["outcomes"]], [
+            ("invalid_input", "unsafe_redirect", False),
+            ("collected", None, True),
+        ])
 
     def test_empty_or_over_limit_batch_rejects_before_output(self):
         cases = [[], [f"https://invalid/{index}" for index in range(11)]]
