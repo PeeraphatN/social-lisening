@@ -22,12 +22,12 @@ def _utc_now() -> str:
 
 
 def parse_identity(url: str) -> dict | None:
-    """Return only the admitted pfbid identity, otherwise no identity proof."""
+    """Return an admitted live-extraction identity, otherwise no identity proof."""
     try:
         admitted = validate_public_url(url)
     except UrlRejected:
         return None
-    return admitted["identity"] if admitted["family"] == "pfbid" else None
+    return admitted["identity"] if admitted["family"] in {"pfbid", "photo"} else None
 
 
 class _ArticleParser(HTMLParser):
@@ -89,7 +89,7 @@ def _metric(raw: str | None) -> dict:
 
 
 def extract_pfbid_capture(input_url: str, resolved_url: str, html: str) -> dict | None:
-    """Extract one uniquely scoped target article or return no target evidence.
+    """Extract one uniquely scoped pfbid or photo target article.
 
     A matching route alone is not enough: exactly one rendered article must
     declare the same route.  Text and counters are read only from that article.

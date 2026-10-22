@@ -197,6 +197,21 @@ class StorageContractTests(unittest.TestCase):
         self.assertEqual([row["latest_updated"] for row in result["outcomes"]], [False, False, False])
         self.assertEqual(latest[key], {**old, "latest_updated": True})
 
+    def test_missing_text_with_evidenced_photo_counters_never_replaces_latest(self):
+        identity = {"kind": "photo", "photo_id": "789"}
+        old = outcome(identity)
+        missing_text = outcome(identity, index=1, status="partial", text_status="missing")
+        missing_text["text"] = {"value": None, "status": "missing", "source": None}
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory) / "output"
+            write_run(output_dir, [old], "completed", None, run_id="old")
+            result = write_run(output_dir, [missing_text], "completed", None, run_id="missing-text")
+            latest = read_latest(output_dir / "posts-latest.csv")
+
+        key = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        self.assertFalse(result["outcomes"][0]["latest_updated"])
+        self.assertEqual(latest[key], {**old, "latest_updated": True})
+
     def test_latest_write_failure_removes_new_run_artifacts(self):
         record = outcome({"kind": "post", "post_id": "123", "owner_id": "456"})
         real_replace = storage.os.replace

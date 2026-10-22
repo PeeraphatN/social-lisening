@@ -13,14 +13,22 @@ from facebook_collector.playwright_adapter import (
 
 
 URL = "https://www.facebook.com/acme/posts/pfbidABC123"
+PHOTO_URL = "https://www.facebook.com/photo/?fbid=1649985453249994"
+PHOTO_URL_WITH_SET = "https://www.facebook.com/photo/?fbid=1649985453249994&set=a.194492012132686"
+OTHER_PHOTO_URL = "https://www.facebook.com/photo/?fbid=1649985453249995"
 
 
 def story_html(*, href=URL, reaction="12", comment="3", share="0", text="Target text"):
+    counters = "".join(
+        markup for markup in (
+            None if reaction is None else f'<div data-counter="reaction">All reactions {reaction}</div>',
+            None if comment is None else f'<div data-counter="comment">{comment} comments</div>',
+            None if share is None else f'<div data-counter="share">{share} shares</div>',
+        ) if markup is not None
+    )
     return f'''<article role="article"><a href="{href}">permalink</a>
     <div data-ad-rendering-role="story_message">{text}</div>
-    <div data-counter="reaction">All reactions {reaction}</div>
-    <div data-counter="comment">{comment} comments</div>
-    <div data-counter="share">{share} shares</div></article>'''
+    {counters}</article>'''
 
 
 class FakeResponse:
@@ -63,6 +71,31 @@ class IdentityAndExtractionTests(unittest.TestCase):
         html = story_html() + story_html(href="https://www.facebook.com/other/posts/pfbidNOPE", reaction="999", text="Neighbour")
         self.assertEqual(extract_pfbid_capture(URL, URL, html)["counters"]["reaction"]["value"], 12)
         self.assertIsNone(extract_pfbid_capture(URL, URL, story_html() + story_html()))
+
+    def test_photo_forms_require_a_matching_final_photo_identity(self):
+        for input_url in (PHOTO_URL, PHOTO_URL_WITH_SET):
+            with self.subTest(input_url=input_url):
+                result = extract_pfbid_capture(input_url, PHOTO_URL, story_html(href=PHOTO_URL, share="0"))
+                self.assertEqual(result["post_identity"], {"kind": "photo", "photo_id": "1649985453249994"})
+                self.assertEqual(result["counters"]["share"], {"value": 0, "raw": "0", "quality": "exact", "source": "target_engagement_row"})
+        self.assertIsNone(extract_pfbid_capture(PHOTO_URL, OTHER_PHOTO_URL, story_html(href=OTHER_PHOTO_URL)))
+
+    def test_photo_scope_rejects_duplicate_target_and_ignores_neighbour(self):
+        html = story_html(href=PHOTO_URL, reaction="12") + story_html(href=OTHER_PHOTO_URL, reaction="999", text="Neighbour")
+        self.assertEqual(extract_pfbid_capture(PHOTO_URL, PHOTO_URL, html)["counters"]["reaction"]["value"], 12)
+        self.assertIsNone(extract_pfbid_capture(PHOTO_URL, PHOTO_URL, story_html(href=PHOTO_URL) + story_html(href=PHOTO_URL)))
+
+    def test_photo_missing_text_is_partial_and_keeps_missing_metrics(self):
+        calls = []
+        page = FakePage(story_html(href=PHOTO_URL, text="", comment=None), PHOTO_URL)
+        with patch.object(socket, "create_connection", side_effect=AssertionError("socket")), patch.object(
+            subprocess, "Popen", side_effect=AssertionError("process")
+        ):
+            result = collect_live_one(PHOTO_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["text"], {"value": None, "status": "missing", "source": None})
+        self.assertEqual(result["counters"]["comment"], {"value": None, "raw": None, "quality": "missing", "source": None})
+        self.assertFalse(result["latest_updated"])
 
 
 class AdapterTests(unittest.TestCase):

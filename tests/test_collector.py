@@ -20,6 +20,7 @@ IDENTITY_UNVERIFIED_URL = "https://www.facebook.com/900000007654321/posts/900000
 BLOCKED_URL = "https://www.facebook.com/900000007654321/posts/900000001234569/"
 RETRY_URL = "https://www.facebook.com/900000007654321/posts/900000001234570/"
 HTTP_URL = "https://www.facebook.com/900000007654321/posts/900000001234571/"
+PHOTO_URL = "https://www.facebook.com/photo/?fbid=1649985453249994"
 
 
 class CollectorPublicCoreTests(unittest.TestCase):
@@ -394,6 +395,42 @@ class CollectorPublicCoreTests(unittest.TestCase):
         self.assertTrue(all(item[2] is browser for item in attempts))
         self.assertEqual(sleep.call_args_list, [call(2), call(4), call(8)])
         self.assertEqual(results["outcomes"][0]["status"], "timeout")
+        self.assertTrue(browser.closed)
+        self.assertTrue(runtime.stopped)
+
+    def test_photo_live_path_uses_the_existing_public_flow_once(self):
+        class Response:
+            status = 200
+        class Page:
+            url = PHOTO_URL
+            def goto(self, url, *, timeout, wait_until): return Response()
+            def content(self):
+                return '''<article role="article"><a href="https://www.facebook.com/photo/?fbid=1649985453249994">permalink</a>
+                <div data-ad-rendering-role="story_message">Photo target</div>
+                <div data-counter="reaction">12</div><div data-counter="comment">3 comments</div>
+                <div data-counter="share">0 shares</div></article>'''
+        class Context:
+            def new_page(self): return Page()
+            def close(self): pass
+        class Browser:
+            def __init__(self): self.contexts = 0; self.closed = False
+            def new_context(self): self.contexts += 1; return Context()
+            def close(self): self.closed = True
+        class Runtime:
+            def __init__(self): self.stopped = False
+            def stop(self): self.stopped = True
+
+        browser, runtime = Browser(), Runtime()
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "facebook_collector.collector._launch_browser", return_value=(browser, runtime)
+        ), patch("socket.create_connection", side_effect=AssertionError("network attempted")), patch(
+            "socket.socket.connect", side_effect=AssertionError("network attempted")
+        ), patch("subprocess.Popen", side_effect=AssertionError("browser launch attempted")):
+            results = collect_posts([PHOTO_URL], Path(directory) / "output")
+
+        self.assertEqual(results["outcomes"][0]["status"], "collected")
+        self.assertEqual(results["outcomes"][0]["post_identity"], {"kind": "photo", "photo_id": "1649985453249994"})
+        self.assertEqual(browser.contexts, 1)
         self.assertTrue(browser.closed)
         self.assertTrue(runtime.stopped)
 
