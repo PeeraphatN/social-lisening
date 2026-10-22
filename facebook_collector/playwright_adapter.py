@@ -10,7 +10,11 @@ import re
 import time
 from urllib.parse import urljoin
 
-from facebook_collector.model import capture_status, empty_outcome
+from facebook_collector.model import (
+    _IDENTITY_DIAGNOSTIC_REASONS,
+    capture_status,
+    empty_outcome,
+)
 from facebook_collector.url_validation import (
     UrlRejected,
     validate_public_url,
@@ -94,21 +98,18 @@ def _metric(raw: str | None) -> dict:
     }
 
 
-def extract_pfbid_capture(input_url: str, resolved_url: str, html: str) -> dict | None:
-    """Extract one uniquely scoped pfbid or photo target article.
-
-    A matching route alone is not enough: exactly one rendered article must
-    declare the same route.  Text and counters are read only from that article.
-    """
+def _extract_pfbid_capture_with_reason(
+    input_url: str, resolved_url: str, html: str
+) -> tuple[dict | None, str | None]:
     try:
         requested = validate_public_url(input_url)
     except UrlRejected:
-        return None
+        return None, "final_route_identity_missing"
     final = parse_identity(resolved_url)
     if final is None or not isinstance(html, str):
-        return None
+        return None, "final_route_identity_missing"
     if requested["family"] != "share" and requested["identity"] != final:
-        return None
+        return None, "requested_final_identity_mismatch"
     parser = _ArticleParser(resolved_url)
     parser.feed(html)
     target = []
@@ -116,10 +117,10 @@ def extract_pfbid_capture(input_url: str, resolved_url: str, html: str) -> dict 
         identities = [parse_identity(href) for href in article["hrefs"]]
         if any(identity == final for identity in identities):
             if any(identity is not None and identity != final for identity in identities):
-                return None
+                return None, "target_article_identity_conflict"
             target.append(article)
     if len(target) != 1:
-        return None
+        return None, "target_article_not_unique"
     article = target[0]
     messages = " ".join(article["message"]).strip()
     if not messages:
@@ -127,14 +128,31 @@ def extract_pfbid_capture(input_url: str, resolved_url: str, html: str) -> dict 
     else:
         text = {"value": messages, "status": "candidate_text_unverified", "source": "rendered_dom_story_message"}
     counters = {name: _metric(" ".join(article["counter"][name]).strip() or None) for name in COUNTERS}
-    return {"post_identity": final, "text": text, "counters": counters}
+    return {"post_identity": final, "text": text, "counters": counters}, None
 
 
-def _failure(input_url: str, status: str, reason: str, *, http_status: int | None = None) -> dict:
+def extract_pfbid_capture(input_url: str, resolved_url: str, html: str) -> dict | None:
+    """Extract one uniquely scoped pfbid or photo target article."""
+    capture, _ = _extract_pfbid_capture_with_reason(input_url, resolved_url, html)
+    return capture
+
+
+def _failure(
+    input_url: str,
+    status: str,
+    reason: str,
+    *,
+    http_status: int | None = None,
+    identity_reason: str | None = None,
+) -> dict:
     outcome = empty_outcome(input_url, 0, status, reason)
     outcome["attempted_at"] = _utc_now()
     if http_status is not None:
         outcome["_event_http_status"] = http_status
+    if identity_reason is not None:
+        if identity_reason not in _IDENTITY_DIAGNOSTIC_REASONS:
+            raise ValueError("unsupported identity diagnostic reason")
+        outcome["_event_identity_reason"] = identity_reason
     return outcome
 
 
@@ -264,13 +282,25 @@ def collect_live_one(input_url: str, *, attempt_timeout_seconds: int, browser) -
         except UrlRejected:
             return _failure(input_url, "invalid_input", "unsafe_redirect", http_status=status)
         if final["family"] == "share" or final["identity"] is None:
-            return _failure(input_url, "error", "identity_unverified", http_status=status)
+            return _failure(
+                input_url,
+                "error",
+                "identity_unverified",
+                http_status=status,
+                identity_reason="final_route_identity_missing",
+            )
         html = page.content()
         if _looks_blocked(html):
             return _failure(input_url, "blocked", "blocked", http_status=status)
-        capture = extract_pfbid_capture(input_url, page.url, html)
+        capture, identity_reason = _extract_pfbid_capture_with_reason(input_url, page.url, html)
         if capture is None:
-            return _failure(input_url, "error", "identity_unverified", http_status=status)
+            return _failure(
+                input_url,
+                "error",
+                "identity_unverified",
+                http_status=status,
+                identity_reason=identity_reason,
+            )
         outcome = {
             "input_index": 0,
             "duplicate_of": None,

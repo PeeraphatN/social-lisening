@@ -101,6 +101,8 @@ def collect_posts(urls, output_dir, *, log=False) -> dict:
             record["attempt"] = attempt
         if outcome.get("_event_http_status") is not None:
             record["http_status"] = outcome["_event_http_status"]
+        if outcome.get("_event_identity_reason") is not None:
+            record["identity_reason"] = outcome["_event_identity_reason"]
         events.append(record)
 
     try:

@@ -128,6 +128,42 @@ class IdentityAndExtractionTests(unittest.TestCase):
         self.assertEqual(extract_pfbid_capture(PHOTO_URL, PHOTO_URL, html)["counters"]["reaction"]["value"], 12)
         self.assertIsNone(extract_pfbid_capture(PHOTO_URL, PHOTO_URL, story_html(href=PHOTO_URL) + story_html(href=PHOTO_URL)))
 
+    def test_identity_failures_retain_finite_structural_reasons(self):
+        cases = (
+            (
+                "requested_final_identity_mismatch",
+                PHOTO_URL,
+                OTHER_PHOTO_URL,
+                story_html(href=OTHER_PHOTO_URL),
+            ),
+            (
+                "target_article_not_unique",
+                PHOTO_URL,
+                PHOTO_URL,
+                "",
+            ),
+        )
+        for reason, input_url, final_url, html in cases:
+            with self.subTest(reason=reason):
+                result = collect_live_one(
+                    input_url,
+                    attempt_timeout_seconds=30,
+                    browser=FakeBrowser(FakePage(html, final_url, hops=[FakeResponse(200)]), []),
+                )
+                self.assertEqual((result["status"], result["reason"]), ("error", "identity_unverified"))
+                self.assertEqual(result["_event_identity_reason"], reason)
+
+    def test_http_error_retains_main_document_status(self):
+        result = collect_live_one(
+            URL,
+            attempt_timeout_seconds=30,
+            browser=FakeBrowser(FakePage("", URL, response=418), []),
+        )
+        self.assertEqual(
+            (result["status"], result["reason"], result["_event_http_status"]),
+            ("error", "http_error", 418),
+        )
+
     def test_photo_missing_text_is_partial_and_keeps_missing_metrics(self):
         calls = []
         page = FakePage(story_html(href=PHOTO_URL, text="", comment=None), PHOTO_URL)

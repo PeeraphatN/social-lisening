@@ -7,7 +7,11 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 
-from facebook_collector.model import capture_status, empty_outcome
+from facebook_collector.model import (
+    _IDENTITY_DIAGNOSTIC_REASONS,
+    capture_status,
+    empty_outcome,
+)
 from facebook_collector.storage import write_run
 from facebook_collector.url_validation import UrlRejected, validate_public_url
 
@@ -201,6 +205,13 @@ def load_offline_capture(path: Path) -> dict:
         if submitted_url in normalized_synthetic_outcomes:
             raise OfflineCaptureError("synthetic_outcomes must not repeat submitted_url")
         normalized = {"status": status}
+        if status == "identity_unverified" and outcome.get("identity_reason") is not None:
+            identity_reason = outcome["identity_reason"]
+            if identity_reason not in _IDENTITY_DIAGNOSTIC_REASONS:
+                raise OfflineCaptureError(
+                    f"synthetic_outcomes[{index}].identity_reason is not supported"
+                )
+            normalized["identity_reason"] = identity_reason
         if status == "http":
             http_status = outcome.get("http_status")
             if (
@@ -280,6 +291,11 @@ def build_synthetic_outcome(
     status = outcome["status"]
     if status == "identity_unverified":
         result = empty_outcome(input_url, 0, "error", status)
+        identity_reason = outcome.get("identity_reason")
+        if identity_reason is not None:
+            if identity_reason not in _IDENTITY_DIAGNOSTIC_REASONS:
+                raise OfflineCaptureError("unsupported identity diagnostic reason")
+            result["_event_identity_reason"] = identity_reason
     elif status in {"blocked", "challenge", "login_wall"}:
         result = empty_outcome(input_url, 0, "blocked", "blocked")
     elif status == "timeout":

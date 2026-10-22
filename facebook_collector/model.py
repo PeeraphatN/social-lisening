@@ -10,6 +10,14 @@ COUNTER_KEYS = set(COUNTER_NAMES)
 MAX_UNIQUE_URLS = 10
 ATTEMPT_TIMEOUT_SECONDS = 30
 RETRY_WAITS_SECONDS = (2, 4, 8)
+_IDENTITY_DIAGNOSTIC_REASONS = frozenset(
+    {
+        "final_route_identity_missing",
+        "requested_final_identity_mismatch",
+        "target_article_not_unique",
+        "target_article_identity_conflict",
+    }
+)
 
 
 class BatchValidationError(ValueError):
@@ -93,6 +101,7 @@ def run_serial(inputs: list[str], attempt, *, sleep=None, event_sink=None) -> tu
             if outcome.get("_event_http_status") is not None and outcome.get("status") == "timeout":
                 event_sink("timeout", outcome, outcome.get("_event_attempt"), index)
         outcome.pop("_event_http_status", None)
+        outcome.pop("_event_identity_reason", None)
         outcome.pop("_event_attempt", None)
         outcomes.append(outcome)
         first_indexes[input_url] = index

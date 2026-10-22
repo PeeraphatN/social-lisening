@@ -73,8 +73,12 @@ class StructuredLoggingTests(unittest.TestCase):
                 root,
                 [
                     {"submitted_url": RETRY_URL, "status": "http", "http_status": 408},
-                    {"submitted_url": HTTP_URL, "status": "http", "http_status": 404},
-                    {"submitted_url": IDENTITY_URL, "status": "identity_unverified"},
+                    {"submitted_url": HTTP_URL, "status": "http", "http_status": 418},
+                    {
+                        "submitted_url": IDENTITY_URL,
+                        "status": "identity_unverified",
+                        "identity_reason": "target_article_not_unique",
+                    },
                     {"submitted_url": BLOCKED_URL, "status": "blocked"},
                 ],
             )
@@ -91,7 +95,11 @@ class StructuredLoggingTests(unittest.TestCase):
             self.assertEqual(results["run_status"], "stopped")
             self.assertTrue({"accepted", "rejected", "duplicate", "retry", "timeout", "http", "identity_unverified", "blocked", "stopped"}.issubset(names))
             self.assertEqual([event["attempt"] for event in events if event["event"] == "retry"], [1, 2, 3])
-            self.assertEqual([event["http_status"] for event in events if event["event"] == "http"], [408, 404])
+            self.assertEqual([event["http_status"] for event in events if event["event"] == "http"], [408, 418])
+            self.assertEqual(
+                [event["identity_reason"] for event in events if event["event"] == "identity_unverified"],
+                ["target_article_not_unique"],
+            )
             for event in events:
                 self.assertEqual(event["event_version"], "1")
                 self.assertEqual(event["feature"], "facebook_post_collector")
@@ -110,6 +118,7 @@ class StructuredLoggingTests(unittest.TestCase):
                             "url_family",
                             "attempt",
                             "http_status",
+                            "identity_reason",
                         }
                     )
                 )
