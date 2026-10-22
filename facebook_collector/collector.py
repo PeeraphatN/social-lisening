@@ -35,13 +35,17 @@ def collect_posts(urls, output_dir, *, log=False) -> dict:
             Path(os.environ["FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE"])
         )
 
-    def collect_one(input_url: str) -> dict:
+    def collect_one(input_url: str, *, attempt_timeout_seconds: int) -> dict:
         if offline_capture is not None:
             if input_url == offline_capture["submitted_url"]:
                 return build_outcome(input_url, offline_capture)
             synthetic_outcome = offline_capture["synthetic_outcomes"].get(input_url)
             if synthetic_outcome is not None:
-                return build_synthetic_outcome(input_url, synthetic_outcome)
+                return build_synthetic_outcome(
+                    input_url,
+                    synthetic_outcome,
+                    attempt_timeout_seconds=attempt_timeout_seconds,
+                )
         try:
             validate_public_url(input_url)
         except UrlRejected as error:

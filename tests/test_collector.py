@@ -5,11 +5,12 @@ import socket
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from facebook_collector import CollectionUnavailable, collect_posts
 from facebook_collector.__main__ import main
 from facebook_collector.model import BatchValidationError
+from facebook_collector.offline import build_synthetic_outcome
 
 
 VALID_URL = "https://www.facebook.com/share/p/19TTvcsmZ8/"
@@ -17,6 +18,8 @@ SYNTHETIC_URL = "https://www.facebook.com/900000007654321/posts/900000001234567/
 OFFLINE_FIXTURE = Path(__file__).parent / "e2e" / "fixtures" / "single-collected.json"
 IDENTITY_UNVERIFIED_URL = "https://www.facebook.com/900000007654321/posts/900000001234568/"
 BLOCKED_URL = "https://www.facebook.com/900000007654321/posts/900000001234569/"
+RETRY_URL = "https://www.facebook.com/900000007654321/posts/900000001234570/"
+HTTP_URL = "https://www.facebook.com/900000007654321/posts/900000001234571/"
 
 
 class CollectorPublicCoreTests(unittest.TestCase):
@@ -32,6 +35,93 @@ class CollectorPublicCoreTests(unittest.TestCase):
         path = Path(directory) / "mixed-capture.json"
         path.write_text(json.dumps(fixture), encoding="utf-8")
         return path
+
+    def synthetic_fixture(self, directory: str, url: str, **outcome: object) -> Path:
+        fixture = json.loads(OFFLINE_FIXTURE.read_text(encoding="utf-8"))
+        fixture["synthetic_outcomes"] = [{"submitted_url": url, **outcome}]
+        path = Path(directory) / "synthetic-capture.json"
+        path.write_text(json.dumps(fixture), encoding="utf-8")
+        return path
+
+    def test_offline_public_api_retries_only_retriable_failures_with_bounded_waits(self):
+        cases = (
+            ("transport_timeout", {"status": "timeout"}),
+            ("http_408", {"status": "http", "http_status": 408}),
+            ("http_504", {"status": "http", "http_status": 504}),
+        )
+        for name, synthetic_outcome in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                fixture = self.synthetic_fixture(directory, RETRY_URL, **synthetic_outcome)
+                with patch.dict(
+                    os.environ,
+                    {
+                        "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(fixture),
+                        "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
+                    },
+                ), patch("socket.create_connection", side_effect=AssertionError("network attempted")), patch(
+                    "socket.socket.connect", side_effect=AssertionError("network attempted")
+                ), patch("subprocess.Popen", side_effect=AssertionError("browser launch attempted")), patch(
+                    "facebook_collector.collector.build_synthetic_outcome",
+                    wraps=build_synthetic_outcome,
+                ) as attempt, patch("facebook_collector.model.time.sleep") as sleep:
+                    results = collect_posts([RETRY_URL, SYNTHETIC_URL], Path(directory) / "output")
+
+                self.assertEqual(attempt.call_count, 4)
+                self.assertEqual(
+                    attempt.call_args_list,
+                    [
+                        call(RETRY_URL, synthetic_outcome, attempt_timeout_seconds=30),
+                        call(RETRY_URL, synthetic_outcome, attempt_timeout_seconds=30),
+                        call(RETRY_URL, synthetic_outcome, attempt_timeout_seconds=30),
+                        call(RETRY_URL, synthetic_outcome, attempt_timeout_seconds=30),
+                    ],
+                )
+                self.assertEqual(sleep.call_args_list, [call(2), call(4), call(8)])
+                self.assertEqual(
+                    [(outcome["status"], outcome["reason"]) for outcome in results["outcomes"]],
+                    [("timeout", "transport_timeout"), ("collected", None)],
+                )
+                self.assertFalse(results["outcomes"][0]["latest_updated"])
+
+    def test_offline_public_api_classifies_http_and_block_walls_without_retry(self):
+        cases = (
+            ({"status": "http", "http_status": 401}, "blocked", "blocked", True),
+            ({"status": "http", "http_status": 403}, "blocked", "blocked", True),
+            ({"status": "http", "http_status": 429}, "blocked", "blocked", True),
+            ({"status": "challenge"}, "blocked", "blocked", True),
+            ({"status": "login_wall"}, "blocked", "blocked", True),
+            ({"status": "http", "http_status": 404}, "error", "post_unavailable", False),
+            ({"status": "http", "http_status": 410}, "error", "post_unavailable", False),
+            ({"status": "http", "http_status": 500}, "error", "facebook_server_error", False),
+            ({"status": "http", "http_status": 503}, "error", "facebook_server_error", False),
+            ({"status": "http", "http_status": 505}, "error", "facebook_server_error", False),
+            ({"status": "http", "http_status": 418}, "error", "http_error", False),
+        )
+        for synthetic_outcome, status, reason, stops in cases:
+            with self.subTest(synthetic_outcome=synthetic_outcome), tempfile.TemporaryDirectory() as directory:
+                fixture = self.synthetic_fixture(directory, HTTP_URL, **synthetic_outcome)
+                with patch.dict(
+                    os.environ,
+                    {
+                        "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(fixture),
+                        "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
+                    },
+                ), patch("socket.create_connection", side_effect=AssertionError("network attempted")), patch(
+                    "socket.socket.connect", side_effect=AssertionError("network attempted")
+                ), patch("subprocess.Popen", side_effect=AssertionError("browser launch attempted")), patch(
+                    "facebook_collector.model.time.sleep"
+                ) as sleep:
+                    results = collect_posts([HTTP_URL, SYNTHETIC_URL], Path(directory) / "output")
+
+                sleep.assert_not_called()
+                self.assertEqual(results["outcomes"][0]["status"], status)
+                self.assertEqual(results["outcomes"][0]["reason"], reason)
+                self.assertFalse(results["outcomes"][0]["latest_updated"])
+                self.assertEqual(results["run_status"], "stopped" if stops else "completed")
+                self.assertEqual(results["stop_reason"], "blocked" if stops else None)
+                self.assertEqual(
+                    results["outcomes"][1]["status"], "not_attempted" if stops else "collected"
+                )
 
     def test_offline_public_core_collects_mixed_batch_in_order_and_deduplicates(self):
         with tempfile.TemporaryDirectory() as directory:
