@@ -192,4 +192,3 @@ def collect_live_one(input_url: str, *, attempt_timeout_seconds: int, browser) -
         return outcome
     finally:
         context.close()
-

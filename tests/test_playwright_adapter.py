@@ -85,4 +85,3 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual((unavailable["status"], unavailable["reason"], unavailable["_event_http_status"]), ("error", "post_unavailable", 404))
         timeout = collect_live_one(URL, attempt_timeout_seconds=30, browser=FakeBrowser(FakePage("", URL, error=TimeoutError()), []))
         self.assertEqual((timeout["status"], timeout["_retryable"]), ("timeout", True))
-
