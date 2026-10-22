@@ -1,11 +1,9 @@
 # Facebook post collector v1 — black-box contract cases
 
 Issue reference: `PeeraphatN/social-lisening#9`
-Status: one restricted internal-test seam is implemented GREEN through both public
-`collect_posts()` and the public CLI: one offline E2E case uses one synthetic fixture
-and makes no live request. The 65-row matrix
-below is the approved target contract, not evidence that the full collector exists;
-see [`docs/specs/facebook-post-collector-v1.md`](../specs/facebook-post-collector-v1.md).
+Status: the implemented collector is GREEN through offline public, focused, fake-browser,
+and E2E tests. The 65-row matrix remains the approved target contract; its executable
+evidence is offline only. See [`docs/specs/facebook-post-collector-v1.md`](../specs/facebook-post-collector-v1.md).
 
 ## Scope and execution boundary
 
@@ -16,11 +14,9 @@ not import collector internals, use raw evidence, or require publisher/reference
 baseline input. Explicit socket and process tripwires fail a test if it attempts a
 network connection or browser launch; they do not provide live or browser coverage.
 
-The implemented E2E proof tests one synthetic fixture and one matching `--url`,
-without browser launch or live traffic. It is not a matrix-row promotion or a
-user-facing collection interface. The public CLI otherwise implements only this
-restricted offline slice, so all broader collection cases remain awaiting their
-respective implementation slices.
+The suite uses deterministic fixtures and fake browsers, including redirect routing,
+attempt-wide deadline/hop-cap, and structured login/challenge tests. It never sends a
+live Facebook request; bounded live acceptance is documented separately and remains inconclusive.
 
 ### Automation levels
 
@@ -146,6 +142,8 @@ route is allowed.
 | Queue, privacy, and logging | 9 |
 | **Total** | **65** |
 
+- Top-level offline suite: **80** tests, including **23** Playwright-adapter fake-browser
+  tests, all passing locally after the final redirect/block-detection review fixes.
 - Executable CLI/public-core contract tests: **15** (**6** CLI contract + **9**
   public-core collector). They prove FPC-CLI-001's restricted one-fixture path through
   both `collect_posts()` and the CLI, plus conflict rejection, repeated-URL ordering,
@@ -156,6 +154,7 @@ route is allowed.
 - Focused transport-free URL/model/storage tests: **22**. They cover pure admission,
   redirect reason mapping, queue/dedupe/null-envelope rules, and isolated target-schema
   persistence; broader rows stay awaiting public-flow integration.
+- Executable E2E workflow tests: **4**, all passing offline.
 - Executable collector integration tests: **1** — the separate one-URL offline
   E2E proof. It exports `results.json`, `posts.csv`, and `posts-latest.csv`, but
   does not promote broader matrix rows.

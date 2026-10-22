@@ -6,6 +6,15 @@
 `feat/facebook-collector-post` โดย public CLI ไม่พึ่ง baseline/reference และทดสอบผ่าน
 synthetic offline seam ก่อน bounded live acceptance
 
+## Final review status
+
+- [x] Final review findings fixed with deterministic RED-to-GREEN fake-browser tests:
+  every admitted family uses the pre-follow redirect gate; a 30-second monotonic
+  attempt deadline and ten-hop cap bound redirects; and block detection requires
+  structured login/challenge evidence rather than article text.
+- [x] Offline verification: 80 top-level tests, 4 E2E tests, and compileall pass.
+- [ ] Bounded live acceptance remains inconclusive; keep the PR draft and #20 open.
+
 ## Architecture decisions
 
 - Python plus anonymous headless Playwright/Chromium is the approved v1 transport;

@@ -1,13 +1,13 @@
 # Facebook post collector v1
 
 Issue: [#9](https://github.com/PeeraphatN/social-lisening/issues/9)
-Status: **Approved target contract**
+Status: **Implemented offline-verified v1 contract; live acceptance inconclusive**
 
 ## Status and scope
 
-This document is the v1 source of truth. It specifies approved public behavior, including live behavior that is not yet implemented.
+This document is the v1 source of truth. The collector implements the approved URL allowlist, serial batch/retry behavior, logging, artifact storage, and anonymous Playwright transport behind offline fake-browser tests.
 
-The current implementation is an internal offline-only first slice: its single synthetic E2E case supports exactly one matching numeric post URL and one synthetic capture with identity kind post. It does not yet implement live transport, the complete URL allowlist, batch behavior, retries, logging, or all target artifact rules below. Do not describe target v1 behavior as implemented.
+Automated verification is offline only. The separate bounded live-acceptance record is inconclusive because the first invocation stopped on a real block, so the PR remains draft and issue #20 remains open.
 
 The collector accepts public Facebook post URLs without login and emits text, aggregate reactions, comments, shares, URLs, timestamps, validated identity, and evidence statuses. It distinguishes unreadable (null) from proven zero, does not need publisher/reference text/baseline input, and never assigns nearby post, comment, reply, or menu counters to the target.
 
@@ -140,16 +140,16 @@ Exit 0 when a trustworthy run artifact is written, even with mixed outcomes or a
 
 The package uses SemVer; existing consumers pin >=1,<2. Within v1, paths and signatures stay stable and fields are never removed, renamed, or redefined; additions are optional only. JSON and both CSV files have schema_version="1"; events have event_version="1". A breaking v2 must write posts-latest-v2.csv, not overwrite v1 latest. Migration tooling waits until v2.
 
-## Current implemented internal offline seam
+## Current internal offline seam
 
 This is an internal test seam, not a public fixture interface. It activates only when both process variables are set:
 
     FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE=<path>
     FACEBOOK_COLLECTOR_NETWORK_DISABLED=1
 
-When active, it reads the capture and makes no browser launch or network request. Missing either setting, or a value other than 1 for FACEBOOK_COLLECTOR_NETWORK_DISABLED, leaves the seam inactive; the current slice fails closed rather than falling back to live transport.
+When active, it reads the capture and makes no browser launch or network request. Missing either setting, or a value other than 1 for FACEBOOK_COLLECTOR_NETWORK_DISABLED, leaves the seam inactive.
 
-The fixture has fixture_schema="offline-observed-capture-v1" and exactly one observed_capture. Its submitted and resolved URLs are independently validated only as https://www.facebook.com/&lt;numeric-owner&gt;/posts/&lt;numeric-post&gt;/ (final slash optional), with no credentials/custom port. It requires post identity and canonical UTC RFC 3339 captured_at. The current offline public invocation accepts exactly one --url, exactly equal to that fixture's submitted_url. Repeated --url, input files, browser/live transport, and the rest of target v1 remain unimplemented in this slice.
+The fixture has fixture_schema="offline-observed-capture-v1" and exactly one observed_capture. Its submitted and resolved URLs are independently validated only as https://www.facebook.com/&lt;numeric-owner&gt;/posts/&lt;numeric-post&gt;/ (final slash optional), with no credentials/custom port. It requires post identity and canonical UTC RFC 3339 captured_at. It is test infrastructure, not a user-facing interface.
 
 ## Verification and contract completion
 

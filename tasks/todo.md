@@ -1,5 +1,13 @@
 # Facebook post collector v1 — tasks
 
+## Final review follow-up
+
+- [x] Route every admitted family through the pre-follow redirect gate.
+- [x] Bound redirects with a monotonic 30-second attempt deadline and ten-hop cap.
+- [x] Replace raw-page phrase block detection with structural login/challenge detection.
+- [x] Run offline verification: 80 top-level tests, 4 E2E tests, compileall.
+- [ ] Keep PR draft and #20 open: bounded live acceptance is inconclusive.
+
 - [x] **SDD: persist and freeze the approved contract**
   - Acceptance: `docs/specs/facebook-post-collector-v1.md` fixes URL/redirect,
     batch/dedupe, retry/HTTP, null-envelope/text-missing, logging, artifact,
