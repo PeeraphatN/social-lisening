@@ -1,17 +1,20 @@
 # Facebook post collector v1 — black-box contract cases
 
 Issue reference: `PeeraphatN/social-lisening#9`
-Status: one restricted internal-test seam is implemented GREEN: one offline public-CLI
-E2E case uses one synthetic fixture and makes no live request. The 65-row matrix
+Status: one restricted internal-test seam is implemented GREEN through both public
+`collect_posts()` and the public CLI: one offline E2E case uses one synthetic fixture
+and makes no live request. The 65-row matrix
 below is the approved target contract, not evidence that the full collector exists;
 see [`docs/specs/facebook-post-collector-v1.md`](../specs/facebook-post-collector-v1.md).
 
 ## Scope and execution boundary
 
 Every capture, identity, URL, and text in a test is synthetic. No case requests
-Facebook or any other live service. Tests use the documented public CLI and the
-approved internal offline capture-injection seam; they do not import collector
-internals, use raw evidence, or require publisher/reference-text baseline input.
+Facebook or any other live service. Tests use the documented public `collect_posts()`
+and CLI surfaces with the approved internal offline capture-injection seam; they do
+not import collector internals, use raw evidence, or require publisher/reference-text
+baseline input. Explicit socket and process tripwires fail a test if it attempts a
+network connection or browser launch; they do not provide live or browser coverage.
 
 The implemented E2E proof tests one synthetic fixture and one matching `--url`,
 without browser launch or live traffic. It is not a matrix-row promotion or a
@@ -31,7 +34,7 @@ respective implementation slices.
 
 | ID | Contract rule | Synthetic input / precondition | Expected public output | Automation level |
 | --- | --- | --- | --- | --- |
-| FPC-CLI-001 | Single input uses `python -m facebook_collector collect --url URL --output-dir DIR`. | One supported URL and an empty output directory. | One ordered outcome is written; its status follows the synthetic capture. | Awaiting implementation |
+| FPC-CLI-001 | Single input uses `python -m facebook_collector collect --url URL --output-dir DIR`. | One supported URL and an empty output directory. | One ordered outcome is written; its status follows the synthetic capture. | Executable now |
 | FPC-CLI-002 | Repeated `--url` values are accepted. | Two distinct supported URLs. | One ordered outcome per supplied input unless a block stops the batch. | Awaiting implementation |
 | FPC-CLI-003 | `--input-file` is UTF-8, one URL per line. | Two supported URLs in `urls.txt`. | One ordered outcome per nonblank line. | Awaiting implementation |
 | FPC-CLI-004 | Blank input-file lines are ignored. | Valid URLs separated by blank lines. | No outcome for a blank line. | Awaiting implementation |
@@ -143,10 +146,13 @@ route is allowed.
 | Queue, privacy, and logging | 9 |
 | **Total** | **65** |
 
-- Executable CLI/public-core contract tests: **10**. They prove conflict rejection,
-  repeated-URL ordering, UTF-8 input-file blank-line handling, the pre-network
-  10-unique limit, invalid-only result artifacts/return values, and fail-closed
-  supported URLs; they do not claim live collection.
+- Executable CLI/public-core contract tests: **15** (**6** CLI contract + **9**
+  public-core collector). They prove FPC-CLI-001's restricted one-fixture path through
+  both `collect_posts()` and the CLI, plus conflict rejection, repeated-URL ordering,
+  UTF-8 input-file blank-line handling, the pre-network 10-unique limit, invalid-only
+  result artifacts/return values, and fail-closed supported URLs. Explicit socket and
+  process tripwires prevent accidental network connections or browser launches; they
+  do not claim live collection or browser support.
 - Focused transport-free URL/model/storage tests: **22**. They cover pure admission,
   redirect reason mapping, queue/dedupe/null-envelope rules, and isolated target-schema
   persistence; broader rows stay awaiting public-flow integration.
