@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from facebook_collector.model import capture_status
 from facebook_collector.storage import write_run
+from facebook_collector.url_validation import UrlRejected, validate_public_url
 
 
 FIXTURE_SCHEMA = "offline-observed-capture-v1"
@@ -17,6 +18,14 @@ RFC3339_UTC_PATTERN = re.compile(
     r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z$"
 )
 FIXTURE_POST_PATH_PATTERN = re.compile(r"^/[0-9]+/posts/[0-9]+/?$")
+IDENTITY_FIELDS_BY_KIND = {
+    "post": ("post_id", "owner_id"),
+    "photo": ("photo_id",),
+    "pfbid": ("route",),
+    "group": ("group_id", "post_id"),
+}
+TEXT_STATUSES = {"candidate_text_unverified", "preview_only", "missing"}
+SYNTHETIC_TERMINAL_STATUSES = {"timeout", "error", "blocked"}
 
 
 class OfflineCaptureError(ValueError):
@@ -63,14 +72,97 @@ def _fixture_post_url(value: object, name: str) -> str:
     except ValueError as error:
         raise OfflineCaptureError(f"{name} must use the approved fixture post route") from error
     if (
-        parsed.scheme != "https"
-        or parsed.netloc != "www.facebook.com"
-        or parsed.query
-        or parsed.fragment
-        or not FIXTURE_POST_PATH_PATTERN.fullmatch(parsed.path)
+        parsed.scheme == "https"
+        and parsed.netloc == "www.facebook.com"
+        and not parsed.query
+        and not parsed.fragment
+        and FIXTURE_POST_PATH_PATTERN.fullmatch(parsed.path)
     ):
-        raise OfflineCaptureError(f"{name} must use the approved fixture post route")
+        return url
+    try:
+        validate_public_url(url)
+    except UrlRejected as error:
+        raise OfflineCaptureError(f"{name} must use the approved fixture post route") from error
     return url
+
+
+def _validated_identity(value: object) -> dict:
+    identity = _required_mapping(value, "validated_identity")
+    kind = identity.get("kind")
+    required = IDENTITY_FIELDS_BY_KIND.get(kind)
+    if required is None:
+        raise OfflineCaptureError("validated_identity.kind is not supported")
+    normalized = {"kind": kind}
+    for field in required:
+        normalized[field] = _required_string(identity.get(field), f"validated_identity.{field}")
+    return normalized
+
+
+def _candidate_text(value: object) -> dict:
+    candidate_text = _required_mapping(value, "candidate_text")
+    status = candidate_text.get("status", "candidate_text_unverified")
+    if status not in TEXT_STATUSES:
+        raise OfflineCaptureError("candidate_text.status is not supported")
+    text_value = candidate_text.get("value")
+    source = candidate_text.get("source")
+    if status == "candidate_text_unverified":
+        return {
+            "value": _required_string(text_value, "candidate_text.value"),
+            "status": status,
+            "source": _required_string(source, "candidate_text.source"),
+        }
+    if text_value is not None and not isinstance(text_value, str):
+        raise OfflineCaptureError("candidate_text.value must be a string or null")
+    if source is not None and not isinstance(source, str):
+        raise OfflineCaptureError("candidate_text.source must be a string or null")
+    return {"value": text_value, "status": status, "source": source}
+
+
+def _engagement(value: object) -> dict:
+    engagement = _required_mapping(value, "engagement")
+    if set(engagement) != set(COUNTER_NAMES):
+        raise OfflineCaptureError("engagement must contain exactly reaction, comment, and share")
+    normalized = {}
+    for name in COUNTER_NAMES:
+        metric = _required_mapping(engagement[name], f"engagement.{name}")
+        observed_value = metric.get("observed_value")
+        quality = metric.get("quality")
+        if observed_value is None:
+            if quality not in {"missing", "unverified"}:
+                raise OfflineCaptureError(f"engagement.{name}.quality must match a null value")
+            raw = metric.get("raw")
+            source = metric.get("source")
+            if raw is not None and not isinstance(raw, str):
+                raise OfflineCaptureError(f"engagement.{name}.raw must be a string or null")
+            if source is not None and not isinstance(source, str):
+                raise OfflineCaptureError(f"engagement.{name}.source must be a string or null")
+        else:
+            if not isinstance(observed_value, int) or isinstance(observed_value, bool) or observed_value < 0:
+                raise OfflineCaptureError(f"engagement.{name}.observed_value must be a nonnegative integer")
+            if quality not in {"exact", "approximate"}:
+                raise OfflineCaptureError(f"engagement.{name}.quality must be exact or approximate")
+            raw = _required_string(metric.get("raw"), f"engagement.{name}.raw", nonempty=False)
+            source = _required_string(metric.get("source"), f"engagement.{name}.source")
+        normalized[name] = {
+            "observed_value": observed_value,
+            "raw": raw,
+            "quality": quality,
+            "source": source,
+        }
+    return normalized
+
+
+def _synthetic_outcome(value: object) -> dict | None:
+    if value is None:
+        return None
+    outcome = _required_mapping(value, "outcome")
+    status = outcome.get("status")
+    if status not in SYNTHETIC_TERMINAL_STATUSES:
+        raise OfflineCaptureError("outcome.status is not supported")
+    reason = outcome.get("reason")
+    if reason is not None and not isinstance(reason, str):
+        raise OfflineCaptureError("outcome.reason must be a string or null")
+    return {"status": status, "reason": reason}
 
 
 def load_offline_capture(path: Path) -> dict:
@@ -85,47 +177,14 @@ def load_offline_capture(path: Path) -> dict:
         raise OfflineCaptureError("fixture_schema is not supported")
     capture = _required_mapping(document.get("observed_capture"), "observed_capture")
 
-    identity = _required_mapping(capture.get("validated_identity"), "validated_identity")
-    if identity.get("kind") != "post":
-        raise OfflineCaptureError("validated_identity.kind must be post")
-    validated_identity = {
-        "kind": "post",
-        "post_id": _required_string(identity.get("post_id"), "validated_identity.post_id"),
-        "owner_id": _required_string(identity.get("owner_id"), "validated_identity.owner_id"),
-    }
-
-    candidate_text = _required_mapping(capture.get("candidate_text"), "candidate_text")
-    normalized_text = {
-        "value": _required_string(candidate_text.get("value"), "candidate_text.value"),
-        "source": _required_string(candidate_text.get("source"), "candidate_text.source"),
-    }
-
-    engagement = _required_mapping(capture.get("engagement"), "engagement")
-    if set(engagement) != set(COUNTER_NAMES):
-        raise OfflineCaptureError("engagement must contain exactly reaction, comment, and share")
-    normalized_engagement = {}
-    for name in COUNTER_NAMES:
-        metric = _required_mapping(engagement[name], f"engagement.{name}")
-        value = metric.get("observed_value")
-        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-            raise OfflineCaptureError(f"engagement.{name}.observed_value must be a nonnegative integer")
-        quality = metric.get("quality")
-        if quality not in {"exact", "approximate"}:
-            raise OfflineCaptureError(f"engagement.{name}.quality must be exact or approximate")
-        normalized_engagement[name] = {
-            "observed_value": value,
-            "raw": _required_string(metric.get("raw"), f"engagement.{name}.raw", nonempty=False),
-            "quality": quality,
-            "source": _required_string(metric.get("source"), f"engagement.{name}.source"),
-        }
-
     return {
         "submitted_url": _fixture_post_url(capture.get("submitted_url"), "submitted_url"),
         "resolved_url": _fixture_post_url(capture.get("resolved_url"), "resolved_url"),
-        "validated_identity": validated_identity,
+        "validated_identity": _validated_identity(capture.get("validated_identity")),
         "captured_at": _utc_rfc3339(capture.get("captured_at")),
-        "candidate_text": normalized_text,
-        "engagement": normalized_engagement,
+        "candidate_text": _candidate_text(capture.get("candidate_text")),
+        "engagement": _engagement(capture.get("engagement")),
+        "outcome": _synthetic_outcome(capture.get("outcome")),
     }
 
 
@@ -149,9 +208,12 @@ def build_outcome(input_url: str, capture: dict) -> dict:
     }
     text = {
         "value": capture["candidate_text"]["value"],
-        "status": "candidate_text_unverified",
+        "status": capture["candidate_text"]["status"],
         "source": capture["candidate_text"]["source"],
     }
+    synthetic_outcome = capture["outcome"]
+    status = synthetic_outcome["status"] if synthetic_outcome else capture_status(text, counters)
+    reason = synthetic_outcome["reason"] if synthetic_outcome else None
     return {
         "input_index": 0,
         "duplicate_of": None,
@@ -160,8 +222,8 @@ def build_outcome(input_url: str, capture: dict) -> dict:
         "post_identity": capture["validated_identity"],
         "attempted_at": utc_now(),
         "collected_at": capture["captured_at"],
-        "status": capture_status(text, counters),
-        "reason": None,
+        "status": status,
+        "reason": reason,
         "text": text,
         "counters": counters,
         "latest_updated": False,
