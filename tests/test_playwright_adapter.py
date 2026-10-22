@@ -198,6 +198,60 @@ class IdentityAndExtractionTests(unittest.TestCase):
 
 
 class AdapterTests(unittest.TestCase):
+    def test_every_direct_family_aborts_unsafe_redirect_before_destination(self):
+        direct_urls = (PHOTO_URL, URL, GROUP_LISTING_URL, GROUP_EXPLICIT_URL)
+        unsafe = "https://evil.example/"
+        for input_url in direct_urls:
+            with self.subTest(input_url=input_url):
+                calls = []
+                page = FakePage("", input_url, hops=[FakeResponse(302, {"location": unsafe})])
+                with patch.object(socket, "create_connection", side_effect=AssertionError("socket")), patch.object(
+                    socket.socket, "connect", side_effect=AssertionError("socket")
+                ), patch.object(subprocess, "Popen", side_effect=AssertionError("process")):
+                    result = collect_live_one(
+                        input_url, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls)
+                    )
+                self.assertEqual((result["status"], result["reason"]), ("invalid_input", "unsafe_redirect"))
+                self.assertEqual(page.calls, [("fetch", input_url, 0), ("abort", input_url)])
+
+    def test_direct_family_without_redirect_still_collects_through_guard(self):
+        calls = []
+        page = FakePage(story_html(href=PHOTO_URL), PHOTO_URL, hops=[FakeResponse(200)])
+        result = collect_live_one(PHOTO_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
+        self.assertEqual(result["status"], "collected")
+        self.assertEqual(calls, ["context", "page", "context.close"])
+        self.assertEqual(page.calls, [("fetch", PHOTO_URL, 0), ("fulfill", PHOTO_URL, 200)])
+
+    def test_redirect_hop_cap_maps_long_allowed_chain_to_retryable_timeout(self):
+        calls = []
+        page = FakePage(
+            "",
+            URL,
+            hops=[FakeResponse(302, {"location": URL}) for _ in range(11)],
+        )
+        result = collect_live_one(SHARE_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
+        self.assertEqual((result["status"], result["reason"], result["_retryable"]), (
+            "timeout", "transport_timeout", True
+        ))
+        self.assertLessEqual(len([call for call in page.calls if call[0] == "fetch"]), 10)
+
+    def test_article_block_words_do_not_block_collection(self):
+        calls = []
+        article = story_html(text="Security check CAPTCHA unusual activity: log in to Facebook")
+        page = FakePage(article, URL, hops=[FakeResponse(200)])
+        result = collect_live_one(URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
+        self.assertEqual((result["status"], result["reason"]), ("collected", None))
+
+    def test_login_and_challenge_surfaces_block_only_with_structure(self):
+        for html in (
+            '<form action="/login/"><input name="email"><input name="pass" type="password"></form>',
+            '<div id="checkpoint"><form><input name="captcha_response"></form></div>',
+        ):
+            with self.subTest(html=html):
+                page = FakePage(html, URL, hops=[FakeResponse(200)])
+                result = collect_live_one(URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, []))
+                self.assertEqual((result["status"], result["reason"]), ("blocked", "blocked"))
+
     def test_share_redirects_validate_each_hop_before_following(self):
         calls = []
         page = FakePage(
