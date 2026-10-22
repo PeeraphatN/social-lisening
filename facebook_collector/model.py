@@ -1,12 +1,15 @@
 """Contract-fixed collection status and serial batch rules."""
 
 from copy import deepcopy
+import time
 
 
 EVIDENCED_QUALITIES = {"exact", "approximate"}
 COUNTER_NAMES = ("reaction", "comment", "share")
 COUNTER_KEYS = set(COUNTER_NAMES)
 MAX_UNIQUE_URLS = 10
+ATTEMPT_TIMEOUT_SECONDS = 30
+RETRY_WAITS_SECONDS = (2, 4, 8)
 
 
 class BatchValidationError(ValueError):
@@ -63,9 +66,10 @@ def validate_batch(inputs: list[str]) -> None:
         raise BatchValidationError("at most 10 unique URLs are allowed")
 
 
-def run_serial(inputs: list[str], attempt) -> tuple[list[dict], str | None]:
+def run_serial(inputs: list[str], attempt, *, sleep=None) -> tuple[list[dict], str | None]:
     """Attempt unique inputs in order and stop only for approved safety failures."""
     validate_batch(inputs)
+    sleep = time.sleep if sleep is None else sleep
 
     outcomes = []
     first_indexes = {}
@@ -79,7 +83,7 @@ def run_serial(inputs: list[str], attempt) -> tuple[list[dict], str | None]:
             outcomes.append(duplicate)
             continue
 
-        outcome = deepcopy(attempt(input_url))
+        outcome = deepcopy(_attempt_with_retries(input_url, attempt, sleep))
         outcome["input_index"] = index
         outcome["duplicate_of"] = None
         outcomes.append(outcome)
@@ -93,3 +97,14 @@ def run_serial(inputs: list[str], attempt) -> tuple[list[dict], str | None]:
             )
             break
     return outcomes, stop_reason
+
+
+def _attempt_with_retries(input_url: str, attempt, sleep) -> dict:
+    """Run the fixed retry policy around one transport attempt seam."""
+    for retry_index in range(len(RETRY_WAITS_SECONDS) + 1):
+        outcome = attempt(input_url, attempt_timeout_seconds=ATTEMPT_TIMEOUT_SECONDS)
+        if not outcome.pop("_retryable", False):
+            return outcome
+        if retry_index < len(RETRY_WAITS_SECONDS):
+            sleep(RETRY_WAITS_SECONDS[retry_index])
+    return outcome

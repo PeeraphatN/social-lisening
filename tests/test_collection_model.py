@@ -72,7 +72,7 @@ class SerialQueueTests(unittest.TestCase):
     def test_block_stops_later_attempts_and_preserves_earlier_outcomes(self):
         attempted = []
 
-        def attempt(url):
+        def attempt(url, *, attempt_timeout_seconds):
             attempted.append(url)
             if url.endswith("blocked"):
                 return {"input_url": url, "status": "blocked"}
@@ -121,7 +121,7 @@ class SerialQueueTests(unittest.TestCase):
     def test_identity_unverified_continues_to_later_inputs(self):
         attempted = []
 
-        def attempt(url):
+        def attempt(url, *, attempt_timeout_seconds):
             attempted.append(url)
             if url.endswith("unverified"):
                 return {
@@ -149,7 +149,7 @@ class SerialQueueTests(unittest.TestCase):
     def test_exact_duplicate_fetches_once_and_keeps_an_ordered_linked_outcome(self):
         attempted = []
 
-        def attempt(url):
+        def attempt(url, *, attempt_timeout_seconds):
             attempted.append(url)
             return {
                 "input_url": url,

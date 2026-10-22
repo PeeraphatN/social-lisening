@@ -187,13 +187,32 @@ def load_offline_capture(path: Path) -> dict:
             outcome.get("submitted_url"), f"synthetic_outcomes[{index}].submitted_url"
         )
         status = outcome.get("status")
-        if status not in {"identity_unverified", "blocked"}:
+        if status not in {
+            "identity_unverified",
+            "blocked",
+            "timeout",
+            "http",
+            "challenge",
+            "login_wall",
+        }:
             raise OfflineCaptureError(
-                f"synthetic_outcomes[{index}].status must be identity_unverified or blocked"
+                f"synthetic_outcomes[{index}].status is not supported"
             )
         if submitted_url in normalized_synthetic_outcomes:
             raise OfflineCaptureError("synthetic_outcomes must not repeat submitted_url")
-        normalized_synthetic_outcomes[submitted_url] = status
+        normalized = {"status": status}
+        if status == "http":
+            http_status = outcome.get("http_status")
+            if (
+                not isinstance(http_status, int)
+                or isinstance(http_status, bool)
+                or not 100 <= http_status <= 599
+            ):
+                raise OfflineCaptureError(
+                    f"synthetic_outcomes[{index}].http_status must be an HTTP status"
+                )
+            normalized["http_status"] = http_status
+        normalized_synthetic_outcomes[submitted_url] = normalized
 
     submitted_url = _fixture_post_url(capture.get("submitted_url"), "submitted_url")
     if submitted_url in normalized_synthetic_outcomes:
@@ -252,12 +271,33 @@ def build_outcome(input_url: str, capture: dict) -> dict:
     }
 
 
-def build_synthetic_outcome(input_url: str, outcome: str) -> dict:
+def build_synthetic_outcome(
+    input_url: str, outcome: dict, *, attempt_timeout_seconds: int
+) -> dict:
     """Build a complete offline item-error envelope after a synthetic attempt."""
-    if outcome == "identity_unverified":
-        result = empty_outcome(input_url, 0, "error", outcome)
-    elif outcome == "blocked":
-        result = empty_outcome(input_url, 0, outcome, outcome)
+    if attempt_timeout_seconds != 30:
+        raise OfflineCaptureError("synthetic attempts require a 30-second timeout")
+    status = outcome["status"]
+    if status == "identity_unverified":
+        result = empty_outcome(input_url, 0, "error", status)
+    elif status in {"blocked", "challenge", "login_wall"}:
+        result = empty_outcome(input_url, 0, "blocked", "blocked")
+    elif status == "timeout":
+        result = empty_outcome(input_url, 0, "timeout", "transport_timeout")
+        result["_retryable"] = True
+    elif status == "http":
+        http_status = outcome["http_status"]
+        if http_status in {401, 403, 429}:
+            result = empty_outcome(input_url, 0, "blocked", "blocked")
+        elif http_status in {404, 410}:
+            result = empty_outcome(input_url, 0, "error", "post_unavailable")
+        elif http_status in {408, 504}:
+            result = empty_outcome(input_url, 0, "timeout", "transport_timeout")
+            result["_retryable"] = True
+        elif 500 <= http_status <= 503 or http_status >= 505:
+            result = empty_outcome(input_url, 0, "error", "facebook_server_error")
+        else:
+            result = empty_outcome(input_url, 0, "error", "http_error")
     else:
         raise OfflineCaptureError("unsupported synthetic outcome")
     result["attempted_at"] = utc_now()
