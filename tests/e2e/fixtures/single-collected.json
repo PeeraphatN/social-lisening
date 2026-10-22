@@ -1,0 +1,37 @@
+{
+  "fixture_schema": "offline-observed-capture-v1",
+  "observed_capture": {
+    "submitted_url": "https://www.facebook.com/900000007654321/posts/900000001234567/",
+    "resolved_url": "https://www.facebook.com/900000007654321/posts/900000001234567/",
+    "validated_identity": {
+      "kind": "post",
+      "post_id": "900000001234567",
+      "owner_id": "900000007654321"
+    },
+    "captured_at": "2026-10-21T04:30:15Z",
+    "candidate_text": {
+      "value": "ทดสอบการเก็บข้อมูลแบบออฟไลน์ 🌿\nบรรทัดที่สอง",
+      "source": "synthetic_rendered_target_story"
+    },
+    "engagement": {
+      "reaction": {
+        "observed_value": 1200,
+        "raw": "1.2K",
+        "quality": "approximate",
+        "source": "synthetic_target_engagement_row"
+      },
+      "comment": {
+        "observed_value": 25,
+        "raw": "25 ความคิดเห็น",
+        "quality": "exact",
+        "source": "synthetic_target_engagement_row"
+      },
+      "share": {
+        "observed_value": 3,
+        "raw": "3 แชร์",
+        "quality": "exact",
+        "source": "synthetic_target_engagement_row"
+      }
+    }
+  }
+}
