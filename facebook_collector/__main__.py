@@ -1,7 +1,6 @@
 """Command-line entry point for the Facebook post collector."""
 
 import argparse
-import os
 from pathlib import Path
 import sys
 
@@ -20,57 +19,33 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
-    offline = bool(
-        os.environ.get("FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE")
-        and os.environ.get("FACEBOOK_COLLECTOR_NETWORK_DISABLED") == "1"
-    )
-    if not offline:
-        if arguments.input_file:
-            try:
-                lines = Path(arguments.input_file).read_text(encoding="utf-8").splitlines()
-            except (OSError, UnicodeError):
-                print("collection failed: cannot read input file", file=sys.stderr)
-                return 1
-            inputs = [line for line in lines if line.strip()]
-        else:
-            inputs = arguments.url
-
-        from facebook_collector import CollectionUnavailable, collect_posts
-        from facebook_collector.model import BatchValidationError
-
+    if arguments.input_file:
         try:
-            collect_posts(inputs, Path(arguments.output_dir), log=arguments.log)
-        except BatchValidationError as error:
-            print(str(error), file=sys.stderr)
-            return 2
-        except CollectionUnavailable as error:
-            print(str(error), file=sys.stderr)
+            lines = Path(arguments.input_file).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            print("collection failed: cannot read input file", file=sys.stderr)
             return 1
-        except (OSError, TypeError, ValueError):
-            print("collection failed: cannot write trustworthy output", file=sys.stderr)
-            return 1
-        return 0
+        inputs = [line for line in lines if line.strip()]
+    else:
+        inputs = arguments.url
 
-    if arguments.input_file or len(arguments.url) != 1 or arguments.log:
-        print("offline collection for this input mode is not implemented", file=sys.stderr)
-        return 1
-
-    from facebook_collector.offline import (
-        OfflineCaptureError,
-        build_outcome,
-        load_offline_capture,
-        write_offline_run,
-    )
+    from facebook_collector import CollectionUnavailable, collect_posts
+    from facebook_collector.model import BatchValidationError
+    from facebook_collector.offline import OfflineCaptureError
 
     try:
-        capture = load_offline_capture(Path(os.environ["FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE"]))
-        outcome = build_outcome(arguments.url[0], capture)
-        write_offline_run(Path(arguments.output_dir), outcome)
+        collect_posts(inputs, Path(arguments.output_dir), log=arguments.log)
+    except BatchValidationError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     except OfflineCaptureError as error:
         print(f"offline collection failed: {error}", file=sys.stderr)
         return 1
-    except OSError:
-        print("offline collection failed: cannot write output", file=sys.stderr)
+    except CollectionUnavailable as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    except (OSError, TypeError, ValueError):
+        print("collection failed: cannot write trustworthy output", file=sys.stderr)
         return 1
     return 0
 

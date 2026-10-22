@@ -1,16 +1,59 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from facebook_collector import CollectionUnavailable, collect_posts
+from facebook_collector.__main__ import main
 from facebook_collector.model import BatchValidationError
 
 
 VALID_URL = "https://www.facebook.com/share/p/19TTvcsmZ8/"
+SYNTHETIC_URL = "https://www.facebook.com/900000007654321/posts/900000001234567/"
+OFFLINE_FIXTURE = Path(__file__).parent / "e2e" / "fixtures" / "single-collected.json"
 
 
 class CollectorPublicCoreTests(unittest.TestCase):
+    def test_cli_delegates_the_offline_seam_to_the_public_core(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {
+                "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(OFFLINE_FIXTURE),
+                "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
+            },
+        ), patch("facebook_collector.collect_posts", return_value={}) as collect:
+            output_dir = Path(directory) / "output"
+
+            exit_code = main(
+                ["collect", "--url", SYNTHETIC_URL, "--output-dir", str(output_dir)]
+            )
+
+            self.assertEqual(exit_code, 0)
+            collect.assert_called_once_with([SYNTHETIC_URL], output_dir, log=False)
+
+    def test_supported_offline_capture_uses_public_core_and_returns_canonical_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {
+                "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(OFFLINE_FIXTURE),
+                "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
+            },
+        ):
+            output_dir = Path(directory) / "output"
+
+            results = collect_posts([SYNTHETIC_URL], output_dir)
+
+            run_directory = output_dir / "runs" / results["run_id"]
+            written = json.loads((run_directory / "results.json").read_text(encoding="utf-8"))
+            self.assertEqual(results, written)
+            self.assertEqual(results["schema_version"], "1")
+            self.assertEqual(results["outcomes"][0]["status"], "collected")
+            self.assertTrue(results["outcomes"][0]["latest_updated"])
+            self.assertTrue((run_directory / "posts.csv").exists())
+            self.assertTrue((output_dir / "posts-latest.csv").exists())
+
     def test_invalid_input_writes_and_returns_one_trustworthy_null_outcome(self):
         with tempfile.TemporaryDirectory() as directory:
             output_dir = Path(directory) / "output"

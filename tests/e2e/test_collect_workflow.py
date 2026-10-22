@@ -8,6 +8,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+from facebook_collector import collect_posts
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,9 +47,10 @@ def assert_utc_rfc3339(test_case: unittest.TestCase, value: object) -> None:
 
 class CollectWorkflowE2ETests(unittest.TestCase):
     def test_collects_one_offline_capture_and_exports_latest_record(self):
-        """The public CLI exports one collected target from an offline capture."""
+        """The public API and CLI export the same offline capture outcome."""
         with tempfile.TemporaryDirectory() as directory:
             output_dir = Path(directory) / "output"
+            api_output_dir = Path(directory) / "api-output"
             environment = os.environ.copy()
             environment.update(
                 {
@@ -60,6 +64,22 @@ class CollectWorkflowE2ETests(unittest.TestCase):
                     "no_proxy": "",
                 }
             )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "FACEBOOK_COLLECTOR_OFFLINE_CAPTURE_FILE": str(FIXTURE),
+                    "FACEBOOK_COLLECTOR_NETWORK_DISABLED": "1",
+                },
+            ):
+                api_results = collect_posts([SYNTHETIC_URL], api_output_dir)
+
+            api_written = json.loads(
+                (api_output_dir / "runs" / api_results["run_id"] / "results.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(api_results, api_written)
 
             completed = subprocess.run(
                 [
@@ -92,6 +112,17 @@ class CollectWorkflowE2ETests(unittest.TestCase):
             run_directory = run_directories[0]
 
             results = json.loads((run_directory / "results.json").read_text(encoding="utf-8"))
+            self.assertEqual(results["schema_version"], api_results["schema_version"])
+            self.assertEqual(results["run_status"], api_results["run_status"])
+            self.assertEqual(results["stop_reason"], api_results["stop_reason"])
+            self.assertEqual(
+                {key: value for key, value in results["outcomes"][0].items() if key != "attempted_at"},
+                {
+                    key: value
+                    for key, value in api_results["outcomes"][0].items()
+                    if key != "attempted_at"
+                },
+            )
             self.assertEqual(results["schema_version"], "1")
             self.assertEqual(results["run_id"], run_directory.name)
             self.assertEqual(results["run_status"], "completed")
