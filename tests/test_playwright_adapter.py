@@ -4,6 +4,7 @@ import socket
 import subprocess
 import unittest
 from unittest.mock import patch
+from urllib.parse import urljoin
 
 from facebook_collector.playwright_adapter import (
     collect_live_one,
@@ -47,40 +48,54 @@ class FakeResponse:
 
 
 class FakeRequest:
-    def __init__(self, url, *, navigation=True):
-        self.url, self._navigation = url, navigation
+    def __init__(self, url, *, navigation=True, frame=None):
+        self.url, self._navigation, self.frame = url, navigation, frame
     def is_navigation_request(self): return self._navigation
 
 
 class FakeRoute:
-    def __init__(self, request, response, calls):
+    def __init__(self, request, response, calls, fetch_response=None):
         self.request, self.response, self.calls = request, response, calls
+        self.fetch_response = fetch_response or response
+        self.aborted = False
     def fetch(self, *, max_redirects):
         self.calls.append(("fetch", self.request.url, max_redirects))
-        return self.response
+        return self.fetch_response
     def fulfill(self, *, response): self.calls.append(("fulfill", self.request.url, response.status))
-    def abort(self): self.calls.append(("abort", self.request.url))
+    def abort(self): self.aborted = True; self.calls.append(("abort", self.request.url))
     def continue_(self): self.calls.append(("continue", self.request.url))
 
 
 class FakePage:
-    def __init__(self, html, final_url, response=200, error=None, hops=None):
+    def __init__(self, html, final_url, response=200, error=None, hops=None, fetch_response=None):
         self.html, self.url, self.final_url, self.response, self.error = html, final_url, final_url, response, error
-        self.hops, self.route_handler, self.calls = list(hops or []), None, []
+        self.hops, self.fetch_response, self.route_handler, self.calls = list(hops or []), fetch_response, None, []
+        self.main_frame = object()
     def route(self, pattern, handler): self.route_handler = handler
     def unroute(self, pattern, handler): self.route_handler = None
     def goto(self, url, *, timeout, wait_until):
-        if self.error: raise self.error
         self.timeout, self.wait_until = timeout, wait_until
+        if self.error: raise self.error
         if self.route_handler is None:
             return FakeResponse(self.response)
-        response = self.hops.pop(0) if self.hops else FakeResponse(self.response)
-        route = FakeRoute(FakeRequest(url), response, self.calls)
-        self.route_handler(route, route.request)
-        if response.status in {301, 302, 303, 307, 308}:
-            raise RuntimeError("aborted redirect")
-        self.url = self.final_url
-        return response
+        current_url = url
+        while True:
+            response = self.hops.pop(0) if self.hops else FakeResponse(self.response)
+            if isinstance(response, BaseException):
+                raise response
+            route = FakeRoute(
+                FakeRequest(current_url, frame=self.main_frame),
+                response,
+                self.calls,
+                self.fetch_response,
+            )
+            self.route_handler(route, route.request)
+            if route.aborted:
+                raise RuntimeError("aborted navigation")
+            if response.status not in {301, 302, 303, 307, 308}:
+                self.url = self.final_url
+                return response
+            current_url = urljoin(current_url, response.headers["location"])
     def content(self): return self.html
 
 
@@ -249,7 +264,7 @@ class AdapterTests(unittest.TestCase):
                         input_url, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls)
                     )
                 self.assertEqual((result["status"], result["reason"]), ("invalid_input", "unsafe_redirect"))
-                self.assertEqual(page.calls, [("fetch", input_url, 0), ("abort", input_url)])
+                self.assertEqual(page.calls, [("continue", input_url), ("abort", unsafe)])
 
     def test_direct_family_without_redirect_still_collects_through_guard(self):
         calls = []
@@ -257,39 +272,11 @@ class AdapterTests(unittest.TestCase):
         result = collect_live_one(PHOTO_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
         self.assertEqual(result["status"], "collected")
         self.assertEqual(calls, ["context", "page", "context.close"])
-        self.assertEqual(page.calls, [("fetch", PHOTO_URL, 0), ("fulfill", PHOTO_URL, 200)])
+        self.assertEqual(page.calls, [("continue", PHOTO_URL)])
 
     def test_browser_accepted_navigation_is_not_replaced_by_rejected_fetch(self):
-        class BrowserSensitiveRoute:
-            def __init__(self, request, calls):
-                self.request, self.calls = request, calls
-                self.fulfilled_response = None
-                self.continued = False
+        page = FakePage(story_html(), URL, response=200, fetch_response=FakeResponse(400))
 
-            def fetch(self, *, max_redirects):
-                self.calls.append(("fetch", self.request.url, max_redirects))
-                return FakeResponse(400)
-
-            def fulfill(self, *, response):
-                self.fulfilled_response = response
-
-            def abort(self):
-                self.calls.append(("abort", self.request.url))
-
-            def continue_(self):
-                self.continued = True
-
-        class BrowserSensitivePage(FakePage):
-            def goto(self, url, *, timeout, wait_until):
-                self.timeout, self.wait_until = timeout, wait_until
-                route = BrowserSensitiveRoute(FakeRequest(url), self.calls)
-                self.route_handler(route, route.request)
-                if route.continued:
-                    self.url = self.final_url
-                    return FakeResponse(200)
-                return route.fulfilled_response
-
-        page = BrowserSensitivePage(story_html(), URL)
         result = collect_live_one(
             URL,
             attempt_timeout_seconds=30,
@@ -297,6 +284,33 @@ class AdapterTests(unittest.TestCase):
         )
 
         self.assertEqual((result["status"], result["reason"]), ("collected", None))
+
+    def test_subframe_navigation_does_not_change_main_document_safety_state(self):
+        class PageWithSubframe(FakePage):
+            def goto(self, url, *, timeout, wait_until):
+                self.timeout, self.wait_until = timeout, wait_until
+                response = FakeResponse(200)
+                main_route = FakeRoute(
+                    FakeRequest(url, frame=self.main_frame), response, self.calls
+                )
+                self.route_handler(main_route, main_route.request)
+                subframe_route = FakeRoute(
+                    FakeRequest("https://example.com/frame", frame=object()),
+                    response,
+                    self.calls,
+                )
+                self.route_handler(subframe_route, subframe_route.request)
+                return response
+
+        page = PageWithSubframe(story_html(), URL)
+        result = collect_live_one(
+            URL,
+            attempt_timeout_seconds=30,
+            browser=FakeBrowser(page, []),
+        )
+
+        self.assertEqual((result["status"], result["reason"]), ("collected", None))
+        self.assertEqual(page.calls, [("continue", URL), ("continue", "https://example.com/frame")])
 
     def test_redirect_hop_cap_maps_long_allowed_chain_to_retryable_timeout(self):
         calls = []
@@ -309,15 +323,24 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual((result["status"], result["reason"], result["_retryable"]), (
             "timeout", "transport_timeout", True
         ))
-        self.assertLessEqual(len([call for call in page.calls if call[0] == "fetch"]), 10)
+        self.assertEqual(len([call for call in page.calls if call[0] == "continue"]), 10)
+        self.assertEqual(page.calls[-1], ("abort", URL))
 
     def test_redirect_deadline_is_attempt_wide_across_safe_hops(self):
-        page = FakePage("", URL, hops=[FakeResponse(302, {"location": URL})])
-        with patch("facebook_collector.playwright_adapter.time.monotonic", side_effect=(0, 0, 31)):
-            result = collect_live_one(SHARE_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, []))
+        page = FakePage(
+            "",
+            URL,
+            hops=[FakeResponse(302, {"location": URL}), TimeoutError()],
+        )
+        result = collect_live_one(
+            SHARE_URL,
+            attempt_timeout_seconds=30,
+            browser=FakeBrowser(page, []),
+        )
         self.assertEqual((result["status"], result["reason"], result["_retryable"]), (
             "timeout", "transport_timeout", True
         ))
+        self.assertEqual(page.timeout, 30000)
 
     def test_article_block_words_do_not_block_collection(self):
         calls = []
@@ -361,10 +384,8 @@ class AdapterTests(unittest.TestCase):
         result = collect_live_one(SHARE_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
         self.assertEqual((result["input_url"], result["resolved_url"], result["status"]), (SHARE_URL, URL, "collected"))
         self.assertEqual(page.calls, [
-            ("fetch", SHARE_URL, 0),
-            ("abort", SHARE_URL),
-            ("fetch", URL, 0),
-            ("fulfill", URL, 200),
+            ("continue", SHARE_URL),
+            ("continue", URL),
         ])
 
     def test_unsafe_redirect_is_aborted_before_following(self):
@@ -382,7 +403,7 @@ class AdapterTests(unittest.TestCase):
                 page = FakePage("", URL, hops=[FakeResponse(302, {"location": location})])
                 result = collect_live_one(SHARE_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
                 self.assertEqual((result["status"], result["reason"], result["resolved_url"], result["_retryable"] if "_retryable" in result else False), ("invalid_input", "unsafe_redirect", None, False))
-                self.assertEqual(page.calls, [("fetch", SHARE_URL, 0), ("abort", SHARE_URL)])
+                self.assertEqual(page.calls, [("continue", SHARE_URL), ("abort", location)])
 
     def test_adapter_uses_nonpersistent_context_and_closes_it(self):
         calls = []

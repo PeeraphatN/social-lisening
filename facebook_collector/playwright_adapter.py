@@ -7,7 +7,6 @@ public interface: ``collector.collect_posts`` owns retries, events and files.
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 import re
-import time
 from urllib.parse import urljoin
 
 from facebook_collector.model import (
@@ -185,72 +184,50 @@ def _looks_blocked(html: str) -> bool:
     return bool((has_form and login_action and login_controls) or (has_form and challenge_surface and captcha_control))
 
 
-def _location(response) -> str | None:
-    """Return a redirect Location without accepting malformed response data."""
-    headers = getattr(response, "headers", None)
-    if not isinstance(headers, dict):
-        return None
-    for name, value in headers.items():
-        if isinstance(name, str) and name.lower() == "location" and isinstance(value, str):
-            return value
-    return None
-
-
-def _is_main_navigation(request) -> bool:
+def _is_main_navigation(page, request) -> bool:
     checker = getattr(request, "is_navigation_request", None)
-    return bool(checker()) if callable(checker) else False
+    if not callable(checker) or not checker():
+        return False
+    main_frame = getattr(page, "main_frame", None)
+    return main_frame is None or getattr(request, "frame", None) is main_frame
 
 
 def _navigate_with_validated_redirects(page, input_url: str, timeout: int):
-    """Fetch each main-document hop without auto-following an unchecked Location."""
-    state = {"next_url": None, "unsafe": False}
-    deadline = time.monotonic() + timeout / 1000
+    """Continue browser navigation only after validating each main-document request."""
+    state = {"main_requests": 0, "unsafe": False, "hop_limit": False}
 
     def route_handler(route, request):
-        if not _is_main_navigation(request):
+        if not _is_main_navigation(page, request):
             route.continue_()
             return
-        response = route.fetch(max_redirects=0)
-        status = getattr(response, "status", 0)
-        if status in {301, 302, 303, 307, 308}:
-            location = _location(response)
-            target = urljoin(request.url, location) if location else None
-            try:
-                if target is None:
-                    raise UrlRejected("unsafe_redirect")
-                validate_redirect_url(target)
-            except UrlRejected:
-                state["unsafe"] = True
-            else:
-                state["next_url"] = target
+        if state["main_requests"] >= _MAX_REDIRECT_HOPS:
+            state["hop_limit"] = True
             route.abort()
             return
-        route.fulfill(response=response)
+        try:
+            validate_redirect_url(request.url)
+        except UrlRejected:
+            state["unsafe"] = True
+            route.abort()
+            return
+        state["main_requests"] += 1
+        route.continue_()
 
     page.route("**/*", route_handler)
-    current_url = input_url
-    hops = 0
     try:
-        while True:
-            if hops >= _MAX_REDIRECT_HOPS:
-                raise TimeoutError("redirect hop limit exhausted")
-            remaining = int((deadline - time.monotonic()) * 1000)
-            if remaining <= 0:
-                raise TimeoutError("redirect deadline exhausted")
-            state["next_url"] = None
-            try:
-                response = page.goto(current_url, timeout=remaining, wait_until="domcontentloaded")
-            except Exception:
-                if state["unsafe"]:
-                    raise UrlRejected("unsafe_redirect")
-                if state["next_url"] is None:
-                    raise
+        try:
+            response = page.goto(input_url, timeout=timeout, wait_until="domcontentloaded")
+        except Exception:
             if state["unsafe"]:
                 raise UrlRejected("unsafe_redirect")
-            if state["next_url"] is None:
-                return response
-            hops += 1
-            current_url = state["next_url"]
+            if state["hop_limit"]:
+                raise TimeoutError("redirect hop limit exhausted")
+            raise
+        if state["unsafe"]:
+            raise UrlRejected("unsafe_redirect")
+        if state["hop_limit"]:
+            raise TimeoutError("redirect hop limit exhausted")
+        return response
     finally:
         page.unroute("**/*", route_handler)
 
