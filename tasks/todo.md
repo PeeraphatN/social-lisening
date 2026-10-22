@@ -5,8 +5,8 @@
 - [x] Route every admitted family through the pre-follow redirect gate.
 - [x] Bound redirects with a monotonic 30-second attempt deadline and ten-hop cap.
 - [x] Replace raw-page phrase block detection with structural login/challenge detection.
-- [x] Run offline verification: 80 top-level tests, 4 E2E tests, compileall.
-- [ ] Keep PR draft and #20 open: bounded live acceptance is inconclusive.
+- [x] Run offline verification: 80 top-level tests, 4 E2E tests, and compileall.
+- [ ] Keep PR draft and #20 open: bounded live acceptance is inconclusive and still pending.
 
 - [x] **SDD: persist and freeze the approved contract**
   - Acceptance: `docs/specs/facebook-post-collector-v1.md` fixes URL/redirect,
@@ -20,73 +20,62 @@
   - Acceptance: with both internal environment variables, exactly one matching
     fixture URL is collected without browser/network and exports its current
     `results.json`, `posts.csv`, and `posts-latest.csv` artifacts.
-  - Verify: `python -m unittest tests.e2e.test_collect_workflow -v`
+  - Verify: `python -m unittest discover -s tests/e2e -p 'test*.py'`
   - Files: existing offline seam, fixture, and E2E test
 
-- [x] **TDD GREEN: CLI shell fails closed outside the restricted seam**
-  - Acceptance: the public CLI exists, rejects conflicting input modes, and does
-    not report success for a normal unimplemented collection command.
-  - Verify: `python -m unittest tests.test_collector_contract -v`
-  - Files: `facebook_collector/__main__.py`, `tests/test_collector_contract.py`
+- [x] **TDD GREEN: public CLI and core**
+  - Acceptance: the public API and thin CLI write and return the complete
+    envelope, UTC fields, fixed null envelopes, `run_id`, repeated/input-file
+    batches, and trustworthy artifacts for the offline seam; unsupported live
+    collection fails closed when its dependency is unavailable.
+  - Verify: `python -m unittest discover -s tests -p 'test*.py'`
+  - Files: `facebook_collector/`, `tests/test_collector.py`,
+    `tests/test_collector_contract.py`
 
-- [ ] **TDD: URL admission first**
+- [x] **TDD GREEN: URL admission and redirect safety**
   - Acceptance: exact P01–P05 routes, eight invalid-input reasons, and
-    per-item unsafe redirects are RED then GREEN with no network; unsafe redirects
-    continue and log only when enabled.
-  - Progress: accepted forms, seven pre-request reasons, and redirect mapping to the
-    eighth reason are GREEN in `tests.test_url_validation`; public run/log integration remains.
-  - Verify: `python -m unittest tests.test_url_validation -v`.
+    per-item unsafe redirects are covered offline; unsafe redirects continue
+    and log only when enabled.
+  - Verify: `python -m unittest tests.test_url_validation tests.test_playwright_adapter tests.test_collector -v`
   - Dependencies: policy freeze
 
-- [ ] **TDD: public core second**
-  - Acceptance: `collect_posts(urls, output_dir, *, log=False)` and its thin CLI
-    wrapper produce the complete envelope, UTC fields, fixed null envelopes,
-    `run_id`, and an ordinary return dict equal to `results.json`.
-  - Progress: the public function and thin CLI now write/return trustworthy artifacts for
-    invalid-only batches; supported URLs still fail closed before live collection.
-  - Verify: `python -m unittest tests.test_collector tests.test_collector_contract -v`.
-  - Dependencies: URL admission
-
-- [ ] **TDD: batch third**
-  - Acceptance: repeated URLs/input files/blank lines, 10-unique limit, serial
-    scheduling, fetch-once duplicate outcomes with `duplicate_of`,
-    identity-unverified continuation, and block-only stopping pass.
-  - Progress: the serial model has 10-unique rejection, exact duplicate linking,
-    identity-unverified continuation, block-only stopping, and complete pending envelopes;
-    supported-URL batch transport integration remains.
-  - Verify: `python -m unittest tests.test_collection_model -v`.
+- [x] **TDD GREEN: serial batch and stopping**
+  - Acceptance: repeated URLs/input files/blank lines, the 10-unique limit,
+    serial scheduling, fetch-once duplicate outcomes with `duplicate_of`,
+    identity-unverified continuation, and block-only stopping pass offline.
+  - Verify: `python -m unittest tests.test_collection_model tests.test_collector tests.test_collector_contract -v`
   - Dependencies: public core
 
-- [ ] **TDD: retry fourth**
+- [x] **TDD GREEN: retry and HTTP mapping**
   - Acceptance: timeout/408/504 have four attempts with 2/4/8-second waits;
-    terminal timeout continues, other HTTP mapping does not retry, and blocks do
-    not retry.
-  - Verify: deterministic synthetic transport tests.
+    terminal timeout continues, other HTTP mapping does not retry, and blocks
+    do not retry.
+  - Verify: `python -m unittest tests.test_collector -v`
   - Dependencies: batch
 
-- [ ] **TDD: logging fifth**
+- [x] **TDD GREEN: structured logging**
   - Acceptance: logging is default-off; `--log` creates versioned bounded JSONL
     without sensitive/raw content and does not alter results.
-  - Verify: focused logging tests.
+  - Verify: `python -m unittest tests.test_logging -v`
   - Dependencies: retry
 
-- [ ] **TDD: artifacts and latest sixth**
-  - Acceptance: canonical versioned JSON/CSV, exact CSV header, conditional event
-    file, atomic validated-identity latest replacement, restart behavior, UTF-8,
-    and exit code behavior pass.
-  - Progress: the isolated storage writer has canonical result returns, the exact
-    route-specific CSV schema, atomic latest replacement/preservation, empty latest output,
-    and write-failure cleanup; public-core/restart/log integration remains.
-  - Verify: `python -m unittest tests.test_storage -v`.
+- [x] **TDD GREEN: artifacts and latest**
+  - Acceptance: canonical versioned JSON/CSV, exact CSV header, conditional
+    event file, atomic validated-identity latest replacement, restart behavior,
+    UTF-8, and offline exit-code behavior pass.
+  - Verify: `python -m unittest tests.test_storage tests.e2e.test_latest_restart_workflow tests.e2e.test_collect_workflow -v`
   - Dependencies: logging
 
-- [ ] **Live adapter last**
-  - Acceptance: anonymous serial Playwright/Chromium transport and rendered-DOM
-    extraction satisfy the completed offline contract; bounded live acceptance is
-    recorded only after source/code freeze.
-  - Verify: offline suite first, then separately recorded bounded acceptance.
+- [ ] **Live acceptance last**
+  - Acceptance: separately record the bounded anonymous Playwright/Chromium
+    acceptance only after the offline suite and source freeze. Keep the PR as
+    draft and #20 open until that evidence is complete.
+  - Verify: offline tests pass first; no live invocation is part of this task.
   - Dependencies: artifacts and latest
 
-The current implementation is not the target collector: it is the checked
-one-URL internal offline slice above. No broader task is marked complete until
-its code and black-box tests exist.
+The current implementation is the approved v1 contract with offline-verified
+public API/CLI, URL and redirect validation, serial batch/retry behavior,
+logging, artifact/latest storage, and anonymous Playwright behavior covered by
+fake-browser tests. Automated verification makes no Facebook network request.
+Bounded live acceptance remains inconclusive, so this checklist does not claim
+release readiness or live proof until #20 is resolved.
