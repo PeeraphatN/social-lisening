@@ -7,6 +7,7 @@ public interface: ``collector.collect_posts`` owns retries, events and files.
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 import re
+import time
 from urllib.parse import urljoin
 
 from facebook_collector.model import capture_status, empty_outcome
@@ -19,6 +20,7 @@ from facebook_collector.url_validation import (
 
 COUNTERS = ("reaction", "comment", "share")
 _COUNT = re.compile(r"(?<![0-9])([0-9][0-9,]*(?:\.[0-9]+)?)([KM])?", re.I)
+_MAX_REDIRECT_HOPS = 10
 
 
 def _utc_now() -> str:
@@ -153,8 +155,16 @@ def _http_failure(input_url: str, status: int) -> dict | None:
 
 
 def _looks_blocked(html: str) -> bool:
+    """Recognize login/challenge chrome, never user-authored page text alone."""
     text = html.lower()
-    return any(marker in text for marker in ("log in to facebook", "security check", "captcha", "unusual activity"))
+    has_form = "<form" in text
+    login_action = re.search(r'<form[^>]+action=["\'][^"\']*/(?:login|checkpoint)', text)
+    login_controls = "name=\"email\"" in text and (
+        "name=\"pass\"" in text or 'type="password"' in text
+    )
+    challenge_surface = re.search(r'(?:id|class)=["\'][^"\']*(?:checkpoint|challenge)', text)
+    captcha_control = re.search(r'name=["\'][^"\']*captcha|g-recaptcha|h-captcha', text)
+    return bool((has_form and login_action and login_controls) or (has_form and challenge_surface and captcha_control))
 
 
 def _location(response) -> str | None:
@@ -176,6 +186,7 @@ def _is_main_navigation(request) -> bool:
 def _navigate_with_validated_redirects(page, input_url: str, timeout: int):
     """Fetch each main-document hop without auto-following an unchecked Location."""
     state = {"next_url": None, "unsafe": False}
+    deadline = time.monotonic() + timeout / 1000
 
     def route_handler(route, request):
         if not _is_main_navigation(request):
@@ -200,11 +211,17 @@ def _navigate_with_validated_redirects(page, input_url: str, timeout: int):
 
     page.route("**/*", route_handler)
     current_url = input_url
+    hops = 0
     try:
         while True:
+            if hops >= _MAX_REDIRECT_HOPS:
+                raise TimeoutError("redirect hop limit exhausted")
+            remaining = int((deadline - time.monotonic()) * 1000)
+            if remaining <= 0:
+                raise TimeoutError("redirect deadline exhausted")
             state["next_url"] = None
             try:
-                response = page.goto(current_url, timeout=timeout, wait_until="domcontentloaded")
+                response = page.goto(current_url, timeout=remaining, wait_until="domcontentloaded")
             except Exception:
                 if state["unsafe"]:
                     raise UrlRejected("unsafe_redirect")
@@ -214,6 +231,7 @@ def _navigate_with_validated_redirects(page, input_url: str, timeout: int):
                 raise UrlRejected("unsafe_redirect")
             if state["next_url"] is None:
                 return response
+            hops += 1
             current_url = state["next_url"]
     finally:
         page.unroute("**/*", route_handler)
@@ -225,17 +243,10 @@ def collect_live_one(input_url: str, *, attempt_timeout_seconds: int, browser) -
     try:
         page = context.new_page()
         try:
-            requested = validate_public_url(input_url)
-            if requested["family"] == "share":
-                response = _navigate_with_validated_redirects(
-                    page, input_url, attempt_timeout_seconds * 1000
-                )
-            else:
-                response = page.goto(
-                    input_url,
-                    timeout=attempt_timeout_seconds * 1000,
-                    wait_until="domcontentloaded",
-                )
+            validate_public_url(input_url)
+            response = _navigate_with_validated_redirects(
+                page, input_url, attempt_timeout_seconds * 1000
+            )
         except Exception as error:
             if isinstance(error, UrlRejected):
                 return _failure(input_url, "invalid_input", "unsafe_redirect")

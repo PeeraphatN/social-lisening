@@ -10,6 +10,7 @@ from facebook_collector.playwright_adapter import (
     extract_pfbid_capture,
     parse_identity,
 )
+from facebook_collector.model import run_serial
 
 
 URL = "https://www.facebook.com/acme/posts/pfbidABC123"
@@ -235,12 +236,32 @@ class AdapterTests(unittest.TestCase):
         ))
         self.assertLessEqual(len([call for call in page.calls if call[0] == "fetch"]), 10)
 
+    def test_redirect_deadline_is_attempt_wide_across_safe_hops(self):
+        page = FakePage("", URL, hops=[FakeResponse(302, {"location": URL})])
+        with patch("facebook_collector.playwright_adapter.time.monotonic", side_effect=(0, 0, 31)):
+            result = collect_live_one(SHARE_URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, []))
+        self.assertEqual((result["status"], result["reason"], result["_retryable"]), (
+            "timeout", "transport_timeout", True
+        ))
+
     def test_article_block_words_do_not_block_collection(self):
         calls = []
         article = story_html(text="Security check CAPTCHA unusual activity: log in to Facebook")
         page = FakePage(article, URL, hops=[FakeResponse(200)])
         result = collect_live_one(URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
         self.assertEqual((result["status"], result["reason"]), ("collected", None))
+
+    def test_article_block_words_do_not_stop_later_batch_input(self):
+        inputs = [URL, PHOTO_URL]
+        pages = {
+            URL: FakePage(story_html(text="security check captcha unusual activity log in to Facebook"), URL, hops=[FakeResponse(200)]),
+            PHOTO_URL: FakePage(story_html(href=PHOTO_URL), PHOTO_URL, hops=[FakeResponse(200)]),
+        }
+        def attempt(input_url, *, attempt_timeout_seconds):
+            return collect_live_one(input_url, attempt_timeout_seconds=attempt_timeout_seconds, browser=FakeBrowser(pages[input_url], []))
+        outcomes, stop_reason = run_serial(inputs, attempt)
+        self.assertEqual([outcome["status"] for outcome in outcomes], ["collected", "collected"])
+        self.assertIsNone(stop_reason)
 
     def test_login_and_challenge_surfaces_block_only_with_structure(self):
         for html in (
@@ -296,7 +317,9 @@ class AdapterTests(unittest.TestCase):
         ):
             result = collect_live_one(URL, attempt_timeout_seconds=30, browser=FakeBrowser(page, calls))
         self.assertEqual(result["status"], "collected")
-        self.assertEqual((page.timeout, page.wait_until), (30000, "domcontentloaded"))
+        self.assertGreater(page.timeout, 0)
+        self.assertLessEqual(page.timeout, 30000)
+        self.assertEqual(page.wait_until, "domcontentloaded")
         self.assertEqual(calls, ["context", "page", "context.close"])
 
     def test_redirect_http_and_timeout_are_fail_closed(self):

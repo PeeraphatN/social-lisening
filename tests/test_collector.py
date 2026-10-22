@@ -405,6 +405,8 @@ class CollectorPublicCoreTests(unittest.TestCase):
             status = 200
         class Page:
             url = PHOTO_URL
+            def route(self, pattern, handler): self.route_handler = handler
+            def unroute(self, pattern, handler): self.route_handler = None
             def goto(self, url, *, timeout, wait_until): return Response()
             def content(self):
                 return '''<article role="article"><a href="https://www.facebook.com/photo/?fbid=1649985453249994">permalink</a>
@@ -439,6 +441,8 @@ class CollectorPublicCoreTests(unittest.TestCase):
     def test_group_listing_public_flow_writes_explicit_target_identity_offline(self):
         class Page:
             url = GROUP_EXPLICIT_URL
+            def route(self, pattern, handler): self.route_handler = handler
+            def unroute(self, pattern, handler): self.route_handler = None
             def goto(self, url, *, timeout, wait_until):
                 self.requested, self.timeout, self.wait_until = url, timeout, wait_until
                 return type("Response", (), {"status": 200})()
