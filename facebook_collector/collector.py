@@ -1,7 +1,10 @@
 """Synchronous public collection service."""
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
+import re
+from urllib.parse import urlsplit
 
 from facebook_collector.model import BatchValidationError, empty_outcome, run_serial, validate_batch
 from facebook_collector.offline import (
@@ -27,8 +30,7 @@ def collect_posts(urls, output_dir, *, log=False) -> dict:
     if not inputs:
         raise BatchValidationError("at least one URL is required")
     validate_batch(inputs)
-    if log:
-        raise CollectionUnavailable("structured logging is not implemented yet")
+    events = []
     offline_capture = None
     if offline_enabled():
         offline_capture = load_offline_capture(
@@ -54,6 +56,50 @@ def collect_posts(urls, output_dir, *, log=False) -> dict:
             raise OfflineCaptureError("input URL does not match offline capture")
         raise CollectionUnavailable("live collection is not implemented yet")
 
-    outcomes, stop_reason = run_serial(inputs, collect_one)
+    def record_event(event: str, outcome: dict, attempt: int | None, input_index: int) -> None:
+        record = {
+            "event_version": "1",
+            "time": utc_now(),
+            "feature": "facebook_post_collector",
+            "event": event,
+            "status": "stopped" if event == "stopped" else outcome.get("status"),
+            "reason": "blocked" if event == "stopped" else outcome.get("reason"),
+            "input_index": input_index,
+        }
+        family = _url_family(outcome.get("input_url"))
+        if family is not None:
+            record["url_family"] = family
+        if attempt is not None:
+            record["attempt"] = attempt
+        if outcome.get("_event_http_status") is not None:
+            record["http_status"] = outcome["_event_http_status"]
+        events.append(record)
+
+    outcomes, stop_reason = run_serial(
+        inputs, collect_one, event_sink=record_event if log else None
+    )
     run_status = "stopped" if stop_reason else "completed"
-    return write_run(Path(output_dir), outcomes, run_status, stop_reason)
+    return write_run(
+        Path(output_dir), outcomes, run_status, stop_reason, events=events if log else None
+    )
+
+
+def utc_now() -> str:
+    """Return a canonical UTC timestamp for a structured event."""
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _url_family(input_url: object) -> str | None:
+    """Classify only the approved URL family, including the offline post fixture seam."""
+    if not isinstance(input_url, str):
+        return None
+    try:
+        return validate_public_url(input_url)["family"]
+    except UrlRejected:
+        try:
+            path = urlsplit(input_url).path
+        except ValueError:
+            return None
+        if re.fullmatch(r"/[0-9]+/posts/[0-9]+/?", path):
+            return "post"
+        return None

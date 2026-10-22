@@ -72,6 +72,18 @@ def outcome(identity, *, index=0, status="collected", text_status="candidate_tex
 
 
 class StorageContractTests(unittest.TestCase):
+    def test_event_write_failure_removes_run_artifacts_without_mutating_latest(self):
+        record = outcome({"kind": "post", "post_id": "123", "owner_id": "456"})
+        event = {"event_version": "1", "event": "accepted"}
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory) / "output"
+            with patch("facebook_collector.storage._write_events_atomically", side_effect=OSError("event failure")):
+                with self.assertRaisesRegex(OSError, "event failure"):
+                    write_run(output_dir, [record], "completed", None, run_id="event-failure", events=[event])
+
+            self.assertFalse((output_dir / "runs" / "event-failure").exists())
+            self.assertFalse((output_dir / "posts-latest.csv").exists())
+
     def test_write_run_returns_the_exact_results_document_and_writes_contract_header(self):
         record = outcome({"kind": "post", "post_id": "123", "owner_id": "456"})
         with tempfile.TemporaryDirectory() as directory:

@@ -274,9 +274,26 @@ def _write_csv_atomically(path: Path, outcomes: list[dict]) -> None:
         raise
 
 
+def _write_events_atomically(path: Path, events: list[dict]) -> None:
+    temporary_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", newline="", delete=False, dir=path.parent
+        ) as temporary:
+            temporary_name = temporary.name
+            for event in events:
+                temporary.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+        os.replace(temporary_name, path)
+    except (OSError, TypeError, ValueError):
+        if temporary_name:
+            Path(temporary_name).unlink(missing_ok=True)
+        raise
+
+
 def _remove_run_artifacts(run_directory: Path) -> None:
     (run_directory / "results.json").unlink(missing_ok=True)
     (run_directory / "posts.csv").unlink(missing_ok=True)
+    (run_directory / "events.jsonl").unlink(missing_ok=True)
     run_directory.rmdir()
 
 
@@ -287,6 +304,7 @@ def write_run(
     stop_reason: str | None,
     *,
     run_id: str | None = None,
+    events: list[dict] | None = None,
 ) -> dict:
     """Write version-1 run artifacts and safely update the identity-keyed latest store."""
     stored_outcomes = deepcopy(outcomes)
@@ -318,6 +336,8 @@ def write_run(
             json.dumps(results, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         _write_csv_atomically(run_directory / "posts.csv", stored_outcomes)
+        if events is not None:
+            _write_events_atomically(run_directory / "events.jsonl", events)
     except (OSError, TypeError, ValueError):
         _remove_run_artifacts(run_directory)
         raise

@@ -66,7 +66,7 @@ def validate_batch(inputs: list[str]) -> None:
         raise BatchValidationError("at most 10 unique URLs are allowed")
 
 
-def run_serial(inputs: list[str], attempt, *, sleep=None) -> tuple[list[dict], str | None]:
+def run_serial(inputs: list[str], attempt, *, sleep=None, event_sink=None) -> tuple[list[dict], str | None]:
     """Attempt unique inputs in order and stop only for approved safety failures."""
     validate_batch(inputs)
     sleep = time.sleep if sleep is None else sleep
@@ -81,16 +81,26 @@ def run_serial(inputs: list[str], attempt, *, sleep=None) -> tuple[list[dict], s
             duplicate["duplicate_of"] = first_indexes[input_url]
             duplicate["latest_updated"] = False
             outcomes.append(duplicate)
+            if event_sink is not None:
+                event_sink("duplicate", duplicate, None, index)
             continue
 
-        outcome = deepcopy(_attempt_with_retries(input_url, attempt, sleep))
+        outcome = deepcopy(_attempt_with_retries(input_url, attempt, sleep, event_sink, index))
         outcome["input_index"] = index
         outcome["duplicate_of"] = None
+        if event_sink is not None:
+            event_sink(_event_name(outcome), outcome, outcome.get("_event_attempt"), index)
+            if outcome.get("_event_http_status") is not None and outcome.get("status") == "timeout":
+                event_sink("timeout", outcome, outcome.get("_event_attempt"), index)
+        outcome.pop("_event_http_status", None)
+        outcome.pop("_event_attempt", None)
         outcomes.append(outcome)
         first_indexes[input_url] = index
         if outcome.get("status") == "blocked":
             stop_reason = "blocked"
         if stop_reason:
+            if event_sink is not None:
+                event_sink("stopped", outcome, None, index)
             outcomes.extend(
                 empty_outcome(pending_url, pending_index, "not_attempted", stop_reason)
                 for pending_index, pending_url in enumerate(inputs[index + 1 :], index + 1)
@@ -99,12 +109,32 @@ def run_serial(inputs: list[str], attempt, *, sleep=None) -> tuple[list[dict], s
     return outcomes, stop_reason
 
 
-def _attempt_with_retries(input_url: str, attempt, sleep) -> dict:
+def _event_name(outcome: dict) -> str:
+    if outcome.get("_event_http_status") is not None:
+        return "http"
+    if outcome.get("status") in {"collected", "partial"}:
+        return "accepted"
+    if outcome.get("status") == "invalid_input":
+        return "rejected"
+    if outcome.get("reason") == "identity_unverified":
+        return "identity_unverified"
+    if outcome.get("status") == "timeout":
+        return "timeout"
+    if outcome.get("status") == "blocked":
+        return "blocked"
+    return "rejected"
+
+
+def _attempt_with_retries(input_url: str, attempt, sleep, event_sink, input_index: int) -> dict:
     """Run the fixed retry policy around one transport attempt seam."""
     for retry_index in range(len(RETRY_WAITS_SECONDS) + 1):
         outcome = attempt(input_url, attempt_timeout_seconds=ATTEMPT_TIMEOUT_SECONDS)
-        if not outcome.pop("_retryable", False):
+        retryable = outcome.pop("_retryable", False)
+        outcome["_event_attempt"] = retry_index + 1
+        if not retryable:
             return outcome
         if retry_index < len(RETRY_WAITS_SECONDS):
+            if event_sink is not None:
+                event_sink("retry", outcome, retry_index + 1, input_index)
             sleep(RETRY_WAITS_SECONDS[retry_index])
     return outcome

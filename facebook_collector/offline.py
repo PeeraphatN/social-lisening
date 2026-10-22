@@ -298,6 +298,7 @@ def build_synthetic_outcome(
             result = empty_outcome(input_url, 0, "error", "facebook_server_error")
         else:
             result = empty_outcome(input_url, 0, "error", "http_error")
+        result["_event_http_status"] = http_status
     else:
         raise OfflineCaptureError("unsupported synthetic outcome")
     result["attempted_at"] = utc_now()
